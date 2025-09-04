@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OAuth Callback</title>
+</head>
+<body>
+    <p>Processing OAuth callback...</p>
+    <script>
+        // Extract the id_token from the URL hash
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const idToken = hashParams.get('id_token');
+        const error = hashParams.get('error');
+        
+        if (idToken) {
+            // Send the token back to the parent window
+            if (window.opener) {
+                window.opener.postMessage({
+                    type: 'zklogin_oauth_success',
+                    idToken: idToken
+                }, window.location.origin);
+            }
+            document.body.innerHTML = '<p>✅ OAuth successful! You can close this window.</p>';
+        } else if (error) {
+            // Send error back to parent
+            if (window.opener) {
+                window.opener.postMessage({
+                    type: 'zklogin_oauth_error',
+                    error: error
+                }, window.location.origin);
+            }
+            document.body.innerHTML = '<p>❌ OAuth error: ' + error + '</p>';
+        } else {
+            document.body.innerHTML = '<p>❌ No token received</p>';
+        }
+        
+        // Close the popup after a short delay
+        setTimeout(() => {
+            window.close();
+        }, 2000);
+    </script>
+</body>
+</html>
