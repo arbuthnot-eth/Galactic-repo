@@ -1,6 +1,6 @@
 {
   "name": "vWallet",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "All-in-one multichain wallet software",
   "author": "Brandon Arbuthnot",
   "license": "MIT",
@@ -11,9 +11,9 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run inject",
     "inject": "node build-inject.js",
-    "build-prod": "npm run build && npm run inject"
+    "tunnel-dev": "bash scripts/tunnel-dev.sh"
   },
   "dependencies": {
     "@mysten/bcs": "^1.7.0",
@@ -28,6 +28,7 @@
     "@mysten/zksend": "^0.13.24"
   },
   "devDependencies": {
+    "@types/node": "^24.3.1",
     "terser": "^5.44.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.4"

@@ -2,9 +2,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const htmlPath = path.join(__dirname, 'vWallet.html');
+const htmlPath = path.join(__dirname, 'vWallet-dev.html');
 const bundlePath = path.join(__dirname, 'dist/sui-sdk-bundle.iife.js');
-const outputPath = path.join(__dirname, 'vWallet-prod.html');
+const outputPath = path.join(__dirname, 'vWallet.html');
 
 try {
   // Check if bundle exists
@@ -25,8 +25,6 @@ try {
   // Remove any dev-only script references (if they exist)
   html = html.replace(/<script src="\.?\/dist\/sui-sdk-bundle\.iife\.js"><\/script>/g, '');
   
-  // Remove any development imports that won't work in production
-  html = html.replace(/import\('\.\/src\/wallet-logic\.ts'\)/g, 'Promise.resolve({ WalletUtils: window.WalletUtils || {} })');
   
   // Write the production HTML file
   fs.writeFileSync(outputPath, html);
@@ -37,7 +35,7 @@ try {
   console.log('✅ Bundle injected successfully!');
   console.log(`📁 Output: ${outputPath}`);
   console.log(`📏 File size: ${fileSize} MB`);
-  console.log('🌐 Ready for file:// deployment!');
+  console.log('🌐 Built single-file bundle. Note: Passkeys require trusted HTTPS (not file://).');
   
 } catch (error) {
   console.error('❌ Error injecting bundle:', error.message);

@@ -1,5 +1,7 @@
 // src/index.ts - Entry file for bundling all Mysten Labs SDKs
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { PasskeyKeypair, BrowserPasskeyProvider, PasskeyPublicKey } from '@mysten/sui/keypairs/passkey';
+// import { WebCryptoSigner } from '@mysten/sui/keypairs/web-crypto-signer'; // Not available in current version
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
 import * as ZkLogin from '@mysten/sui/zklogin';
@@ -16,6 +18,10 @@ import * as Kiosk from '@mysten/kiosk';
 // Re-export Sui with specific imports using proper package exports
 const Sui = {
   Ed25519Keypair,
+  PasskeyKeypair,
+  BrowserPasskeyProvider,
+  PasskeyPublicKey,
+  // WebCryptoSigner, // Not available in current version
   getFullnodeUrl,
   SuiClient,
   Transaction, // Note: Using Transaction instead of TransactionBlock in v1.37.6

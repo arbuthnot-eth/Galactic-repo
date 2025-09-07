@@ -11,8 +11,9 @@
     "outDir": "./dist",
     "declaration": true,
     "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "*.config.ts", "*.config.js"],
   "exclude": ["node_modules", "dist"]
 }
