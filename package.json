@@ -13,7 +13,8 @@
     "dev": "vite",
     "build": "vite build && npm run inject",
     "inject": "node build-inject.js",
-    "tunnel-dev": "bash scripts/tunnel-dev.sh"
+    "tunnel-dev": "bash scripts/tunnel-dev.sh",
+    "cleanup-dev": "bash scripts/cleanup-dev.sh"
   },
   "dependencies": {
     "@mysten/bcs": "^1.7.0",

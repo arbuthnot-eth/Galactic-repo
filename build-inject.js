@@ -22,9 +22,22 @@ try {
   // Inject the bundle at the placeholder
   html = html.replace('<!-- BUNDLE_PLACEHOLDER -->', `<script>${bundle}</script>`);
   
+  // Add/replace favicon: if dev link exists, replace with data URL for single-file prod
+  const faviconTxtPath = path.join(__dirname, 'assets', 'vWallet.txt');
+  const faviconLinkRegex = /<link\s+[^>]*rel=["']icon["'][^>]*>/i;
+  const hasFaviconLink = faviconLinkRegex.test(html);
+  if (fs.existsSync(faviconTxtPath)) {
+    const iconBase64 = fs.readFileSync(faviconTxtPath, 'utf8').trim();
+    const dataUrlTag = `<link rel="icon" type="image/png" href="data:image/png;base64,${iconBase64}">`;
+    if (hasFaviconLink) {
+      html = html.replace(faviconLinkRegex, dataUrlTag);
+    } else {
+      html = html.replace('</title>', `</title>\n    ${dataUrlTag}`);
+    }
+  }
+  
   // Remove any dev-only script references (if they exist)
   html = html.replace(/<script src="\.?\/dist\/sui-sdk-bundle\.iife\.js"><\/script>/g, '');
-  
   
   // Write the production HTML file
   fs.writeFileSync(outputPath, html);

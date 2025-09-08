@@ -3,7 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>vWallet - Secure Web3 Wallet</title>
+    <title>vWallet</title>
+    <!-- Performance optimizations -->
+    <link rel="dns-prefetch" href="//fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Dev favicon: served from assets; injector may override in prod -->
+    <link rel="icon" type="image/png" href="assets/vWallet.png">
+    <script>
+        // Optimized favicon loading - defer until critical content loads
+        window.addEventListener('load',function(){
+            const link=document.querySelector('link[rel="icon"]');
+            if(link&&link.href){
+                window.getVWalletIconUrl=function(){return link.href};
+                const styleEl=document.createElement('style');
+                styleEl.id='vw-favicon-var';
+                styleEl.textContent=`:root{--vw-favicon-url:url("${link.href}")}`;
+                (document.body||document.head).appendChild(styleEl);
+            }
+        });
+    </script>
+    <!-- Critical CSS for immediate rendering -->
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -27,123 +46,73 @@
             margin-bottom: 30px;
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
-        .section {
-            margin: 20px 0;
-            padding: 20px;
-            border: 1px solid rgba(139, 69, 19, 0.4);
-            border-radius: 10px;
-            background: linear-gradient(145deg, rgba(60, 20, 20, 0.6) 0%, rgba(80, 30, 30, 0.6) 100%);
-            backdrop-filter: blur(10px);
-        }
-        .section h3 {
-            margin-top: 0;
+        
+        /* Loading screen styles */
+        .app-loading {
+            text-align: center;
+            margin-top: 50px;
             color: #e8d5c3;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
         }
-        button {
-            background: linear-gradient(145deg, #8B4513 0%, #A0522D 100%);
-            color: #f4f1ef;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 5px;
-            font-size: 14px;
-            transition: all 0.3s ease;
-            box-shadow: 0 3px 8px rgba(0,0,0,0.3);
-            border: 1px solid rgba(160, 82, 45, 0.3);
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(139, 69, 19, 0.3);
+            border-radius: 50%;
+            border-top-color: #8B4513;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
         }
-        button:hover {
-            background: linear-gradient(145deg, #A0522D 0%, #CD853F 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
-        }
-        button:disabled {
-            background: rgba(139, 69, 19, 0.4);
-            cursor: not-allowed;
-            transform: none;
-            color: rgba(244, 241, 239, 0.5);
-        }
-        .primary-btn {
-            border-radius: 12px;
-            padding: 15px 25px;
-            font-size: 16px;
-            font-weight: 600;
-            box-shadow: 0 6px 15px rgba(0,0,0,0.25);
-            border: none;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            background: linear-gradient(145deg, #722F37 0%, #8B4513 100%);
-            border: 1px solid rgba(139, 69, 19, 0.5);
-        }
-        .primary-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.35);
-            background: linear-gradient(145deg, #8B4513 0%, #A0522D 100%);
-        }
-        input[type="text"], input[type="number"], input[type="password"] {
-            padding: 12px;
-            border: 1px solid rgba(139, 69, 19, 0.4);
-            border-radius: 8px;
-            margin: 5px;
-            background: rgba(60, 20, 20, 0.3);
-            color: #f4f1ef;
-            backdrop-filter: blur(5px);
-            font-size: 14px;
-        }
-        input[type="text"]:focus, input[type="number"]:focus, input[type="password"]:focus {
-            outline: none;
-            border-color: #A0522D;
-            box-shadow: 0 0 10px rgba(160, 82, 45, 0.3);
-        }
-        input::placeholder {
-            color: rgba(244, 241, 239, 0.6);
-        }
-        #output {
-            background: #2c3e50;
-            color: #ecf0f1;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            margin-top: 20px;
-        }
-        .wallet-info {
-            background: #e8f5e8;
-            border-left: 4px solid #27ae60;
-            padding: 10px;
-            margin: 10px 0;
-        }
-        .error {
-            background: #fdf2f2;
-            border-left: 4px solid #e74c3c;
-            padding: 10px;
-            margin: 10px 0;
-            color: #c0392b;
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         
-        /* Only hide specific compatibility dialogs, NOT Proton Pass itself */
-        .compatibility-dialog,
-        .browser-warning,
-        .device-warning {
-            display: none !important;
-            visibility: hidden !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
+        /* Loading screen transitions - very fast fade */
+        #loading-screen {
+            transition: opacity 0.1s ease-out;
         }
+        
+        /* Hide main content until loaded */
+        .main-content {
+            display: none;
+            opacity: 0;
+            transition: opacity 0.2s ease-out;
+        }
+        .main-content.loaded {
+            opacity: 1; /* Very brief fade-in */
+        }
+
+        /* Sections fade in smoothly */
+        .section {
+            margin:20px 0;padding:20px;border:1px solid rgba(139,69,19,.4);border-radius:10px;background:linear-gradient(145deg,rgba(60,20,20,.6),rgba(80,30,30,.6));backdrop-filter:blur(10px);display:none;opacity:0;transition:opacity .5s ease-in;
+        }
+        .section.visible {
+            opacity: 1;
+        }
+        
+        /* Critical elements - optimized */
+        body,.container,h1{visibility:visible!important}
+        .section h3{margin-top:0;color:#e8d5c3;text-shadow:0 1px 2px rgba(0,0,0,.3)}
+        :root{--vw-favicon-url:initial}
+        .vw-icon{display:inline-block;width:1em;height:1em;background-image:var(--vw-favicon-url);background-size:contain;background-repeat:no-repeat;vertical-align:-.15em}
+        button{background:linear-gradient(145deg,#8B4513,#A0522D);color:#f4f1ef;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;margin:5px;font-size:14px;transition:all .3s ease;box-shadow:0 3px 8px rgba(0,0,0,.3);border:1px solid rgba(160,82,45,.3)}
+        button:hover{background:linear-gradient(145deg,#A0522D,#CD853F);transform:translateY(-1px);box-shadow:0 6px 12px rgba(0,0,0,.4)}
+        button:disabled{background:rgba(139,69,19,.4);cursor:not-allowed;transform:none;color:rgba(244,241,239,.5)}
+        .primary-btn{border-radius:12px;padding:15px 25px;font-size:16px;font-weight:600;box-shadow:0 6px 15px rgba(0,0,0,.25);border:1px solid rgba(139,69,19,.5);cursor:pointer;transition:all .3s ease;background:linear-gradient(145deg,#722F37,#8B4513)}
+        .primary-btn:hover{transform:translateY(-3px);box-shadow:0 10px 25px rgba(0,0,0,.35);background:linear-gradient(145deg,#8B4513,#A0522D)}
+        input[type="text"],input[type="number"],input[type="password"]{padding:12px;border:1px solid rgba(139,69,19,.4);border-radius:8px;margin:5px;background:rgba(60,20,20,.3);color:#f4f1ef;backdrop-filter:blur(5px);font-size:14px}
+        input[type="text"]:focus,input[type="number"]:focus,input[type="password"]:focus{outline:none;border-color:#A0522D;box-shadow:0 0 10px rgba(160,82,45,.3)}
+        input::placeholder{color:rgba(244,241,239,.6)}
+        #output{background:#2c3e50;color:#ecf0f1;padding:15px;border-radius:5px;font-family:'Courier New',monospace;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;margin-top:20px}
+        .wallet-info{background:#e8f5e8;border-left:4px solid #27ae60;padding:10px;margin:10px 0}
+        .error{background:#fdf2f2;border-left:4px solid #e74c3c;padding:10px;margin:10px 0;color:#c0392b}
+        
+        .compatibility-dialog,.browser-warning,.device-warning{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
     </style>
     
     <!-- BUNDLE_PLACEHOLDER -->
     <script>
-        // Polyfills for browser environment
-        window.process = { env: { NODE_ENV: 'production' } };
-        window.global = window.globalThis || window;
-        
-        // Handle browser compatibility dialogs that appear AFTER closing Proton Pass
-        document.addEventListener('DOMContentLoaded', function() {
+        window.process={env:{NODE_ENV:'production'}};window.global=window.globalThis||window;document.addEventListener('DOMContentLoaded',function(){
             // Only hide the specific compatibility dialog, not Proton Pass itself
             const hideSpecificCompatibilityDialog = () => {
                 // Look for the specific compatibility dialog that appears after closing Proton Pass
@@ -208,77 +177,14 @@
     </script>
     
     <script type="module">
-        // Global wallet state
-        let currentWallet = null;
-        let currentNetwork = 'devnet';
-        
-        // Wait for SDKs to load
-        function waitForSDKs() {
-            return new Promise((resolve) => {
-                if (window.SuiSDK) {
-                    resolve();
-                } else {
-                    setTimeout(() => waitForSDKs().then(resolve), 100);
-                }
-            });
-        }
-        
-        // Log output to the console div
-        function logOutput(message, isError = false) {
-            const output = document.getElementById('output');
-            const timestamp = new Date().toLocaleTimeString();
-            const prefix = isError ? '[ERROR]' : '[INFO]';
-            output.textContent += `${timestamp} ${prefix} ${message}\n`;
-            output.scrollTop = output.scrollHeight;
-        }
+        let currentWallet=null,currentNetwork='devnet';
+        function waitForSDKs(){return new Promise(r=>{window.SuiSDK?r():setTimeout(()=>waitForSDKs().then(r),100)})}
+        function logOutput(e,t=!1){const n=document.getElementById('output'),o=new Date().toLocaleTimeString(),r=t?'[ERROR]':'[INFO]';n.textContent+=`${o} ${r} ${e}\n`;n.scrollTop=n.scrollHeight}
         
         
-        // Wallet functions
-        async function createNewWallet() {
-            try {
-                logOutput('Creating new wallet...');
-                const wallet = createWallet();
-                currentWallet = wallet;
-                
-                document.getElementById('currentAddress').textContent = wallet.address;
-                document.getElementById('walletInfo').style.display = 'block';
-                document.getElementById('zkLoginInfo').style.display = 'none'; // Hide zkLogin info for regular wallets
-                
-                logOutput(`Wallet created successfully!`);
-                logOutput(`Address: ${wallet.address}`);
-                
-                // Auto-fetch balance
-                await getWalletBalance();
-            } catch (error) {
-                logOutput('Error creating wallet: ' + error.message, true);
-            }
-        }
+        async function createNewWallet(){try{logOutput('Creating new wallet...');const e=createWallet();currentWallet=e;document.getElementById('currentAddress').textContent=e.address;document.getElementById('walletInfo').style.display='block';document.getElementById('zkLoginInfo').style.display='none';logOutput('Wallet created successfully!');logOutput(`Address: ${e.address}`);await getWalletBalance()}catch(e){logOutput('Error creating wallet: '+e.message,!0)}}
         
-        async function restoreExistingWallet() {
-            const privateKey = document.getElementById('privateKeyInput').value.trim();
-            if (!privateKey) {
-                logOutput('Please enter a private key', true);
-                return;
-            }
-            
-            try {
-                logOutput('Restoring wallet from private key...');
-                const wallet = restoreWallet(privateKey);
-                currentWallet = wallet;
-                
-                document.getElementById('currentAddress').textContent = wallet.address;
-                document.getElementById('walletInfo').style.display = 'block';
-                document.getElementById('zkLoginInfo').style.display = 'none'; // Hide zkLogin info for regular wallets
-                
-                logOutput('Wallet restored successfully!');
-                logOutput(`Address: ${wallet.address}`);
-                
-                // Auto-fetch balance
-                await getWalletBalance();
-            } catch (error) {
-                logOutput('Error restoring wallet: ' + error.message, true);
-            }
-        }
+        async function restoreExistingWallet(){const e=document.getElementById('privateKeyInput').value.trim();if(!e){logOutput('Please enter a private key',!0);return}try{logOutput('Restoring wallet from private key...');const t=restoreWallet(e);currentWallet=t;document.getElementById('currentAddress').textContent=t.address;document.getElementById('walletInfo').style.display='block';document.getElementById('zkLoginInfo').style.display='none';logOutput('Wallet restored successfully!');logOutput(`Address: ${t.address}`);await getWalletBalance()}catch(e){logOutput('Error restoring wallet: '+e.message,!0)}}
         
         async function getWalletBalance() {
             if (!currentWallet) {
@@ -336,9 +242,6 @@
                     // For passkey wallets, use the passkey for signing
                     logOutput('📱 Please use your biometric to sign the transaction...');
                     result = await transferSui(currentWallet.keypair, toAddress, amount, currentNetwork);
-                } else if (currentWallet.type === 'zkLogin+passkey') {
-                    // For zkLogin+passkey, use zkLogin for transaction signing
-                    result = await transferSuiZkLogin(currentWallet, toAddress, amount, currentNetwork);
                 } else if (currentWallet.type === 'zkLogin') {
                     // Regular zkLogin
                     result = await transferSuiZkLogin(currentWallet, toAddress, amount, currentNetwork);
@@ -1191,104 +1094,6 @@
             }
         };
         
-        window.loginWithPasskeyZkLogin = async function loginWithPasskeyZkLogin() {
-            try {
-                logOutput('🔑 Starting zkLogin + Passkey authentication...');
-                
-                if (!window.SuiSDK?.Sui?.PasskeyKeypair || !window.SuiSDK.ZkLogin) {
-                    throw new Error('Passkey or zkLogin support not available');
-                }
-                
-                // Step 1: Create ephemeral keypair for this session
-                logOutput('Step 1: Creating secure ephemeral keypair...');
-                const { Ed25519Keypair } = window.SuiSDK.Sui;
-                const ephemeralKeypair = Ed25519Keypair.generate();
-                
-                // Step 2: Get OAuth JWT (same as regular zkLogin)
-                logOutput('Step 2: Opening Google OAuth popup...');
-                const authUrl = buildGoogleAuthUrl();
-                const jwt = await openOAuthPopup(authUrl);
-                
-                if (!jwt) {
-                    throw new Error('Failed to get JWT token from OAuth');
-                }
-                
-                // Step 3: Create passkey for long-term authentication
-                logOutput('Step 3: Creating passkey for secure access...');
-                const { PasskeyKeypair, BrowserPasskeyProvider } = window.SuiSDK.Sui;
-                
-                const hostname = window.location.hostname;
-                const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.endsWith('.localhost') || hostname === '';
-                
-                const passkeyProvider = new BrowserPasskeyProvider('vWallet zkLogin', {
-                    rpName: 'vWallet - Sui zkLogin Wallet',
-                    ...(isLocalhost
-                        ? {}
-                        : ((hostname === 'vwallet.red' || hostname.endsWith('.vwallet.red'))
-                            ? { rpId: 'vwallet.red' }
-                            : { rpId: hostname })),
-                    authenticatorSelection: {
-                        authenticatorAttachment: 'platform',
-                        userVerification: 'preferred'
-                    }
-                });
-                
-                logOutput('📱 Please use your biometric/passkey for secure zkLogin setup...');
-                const passkeyKeypair = await PasskeyKeypair.getPasskeyInstance(passkeyProvider);
-                
-                // Step 4: Process zkLogin as normal
-                logOutput('Step 4: Processing zkLogin authentication...');
-                const decodedJwt = JSON.parse(atob(jwt.split('.')[1]));
-                
-                // Generate zkLogin inputs
-                const zkLoginInputs = await generateZkLoginInputs(jwt, ephemeralKeypair);
-                
-                // Compute zkLogin address
-                const zkAddress = computeZkLoginAddress(zkLoginInputs);
-                
-                // Create combined wallet with both zkLogin and passkey
-                const passkeyPublicKey = passkeyKeypair.getPublicKey();
-                
-                currentWallet = {
-                    address: zkAddress,
-                    type: 'zkLogin+passkey',
-                    zkLoginInputs: zkLoginInputs,
-                    ephemeralKeypair: ephemeralKeypair,
-                    passkeyKeypair: passkeyKeypair,
-                    passkeyPublicKey: Array.from(passkeyPublicKey.toRawBytes()),
-                    jwt: jwt,
-                    provider: 'Google',
-                    fromPasskeyZkLogin: true
-                };
-                
-                // Store for future recovery (encrypted with passkey) — disabled
-                const zkPasskeyData = {
-                    address: zkAddress,
-                    passkeyPublicKey: Array.from(passkeyPublicKey.toRawBytes()),
-                    provider: 'Google',
-                    zkLoginInputs: zkLoginInputs,
-                    createdAt: Date.now()
-                };
-                
-                localStorage.setItem('zkLoginPasskey', JSON.stringify(zkPasskeyData));
-                
-                document.getElementById('currentAddress').textContent = zkAddress;
-                document.getElementById('walletInfo').style.display = 'block';
-                document.getElementById('zkLoginInfo').style.display = 'block';
-                document.getElementById('zkProvider').textContent = 'Google + Passkey';
-                document.getElementById('zkUserId').textContent = decodedJwt.email || decodedJwt.sub;
-                
-                logOutput('✅ zkLogin + Passkey wallet created successfully!');
-                logOutput(`Address: ${zkAddress}`);
-                logOutput('🔑 Enhanced security with biometric authentication');
-                
-                // Auto-fetch balance
-                await getWalletBalance();
-                
-            } catch (error) {
-                logOutput('zkLogin + Passkey failed: ' + error.message, true);
-            }
-        };
         
         // Disconnect wallet function
         window.disconnectWallet = function disconnectWallet() {
@@ -1311,7 +1116,6 @@
                 try { localStorage.removeItem('vWallet'); } catch {}
                 try { localStorage.removeItem('passkeyWallet'); } catch {}
                 try { localStorage.removeItem('zkLoginCache'); } catch {}
-                try { localStorage.removeItem('zkLoginPasskey'); } catch {}
                 
                 try { localStorage.removeItem('vWallet_reconnection'); } catch {}
                 
@@ -1528,11 +1332,66 @@
             logOutput('🍷 Welcome back! Your vWallet is ready - access it with your passkey');
         }
         
-        // Check cache when page loads
-        waitForSDKs().then(() => {
-            checkZkLoginCache();
-            checkPasskeyCache();
-        });
+        // App initialization and loading management
+        function initializeApp() {
+            // Show loading screen immediately
+            const loadingScreen = document.getElementById('loading-screen');
+            const mainContent = document.getElementById('main-content');
+            
+            if (loadingScreen) loadingScreen.style.display = 'block';
+            if (mainContent) mainContent.style.display = 'none';
+            
+            // Wait for SDKs and then show main app
+            waitForSDKs().then(() => {
+                checkZkLoginCache();
+                checkPasskeyCache();
+                
+                // Transition from loading to main content
+                setTimeout(() => {
+                    if (loadingScreen) {
+                        // Start fade out of loading screen
+                        loadingScreen.style.opacity = '0';
+                        // After fade completes, hide loading screen and show content
+                        setTimeout(() => {
+                            loadingScreen.style.display = 'none';
+                            if (mainContent) {
+                                mainContent.style.display = 'block';
+                                // Delay for sections to appear (300ms after main content)
+                                setTimeout(() => {
+                                    // Show sections with fade-in animation
+                                    const allSections = document.querySelectorAll('.section');
+                                    allSections.forEach(section => {
+                                        section.style.display = 'block';
+                                        section.classList.add('visible'); // Trigger fade-in
+                                    });
+                                    // Main content is already loaded
+                                    mainContent.classList.add('loaded');
+                                }, 300);
+                            }
+                        }, 100); // Very fast loading screen fade (100ms)
+                    } else if (mainContent) {
+                        // Fallback if no loading screen exists
+                        mainContent.style.display = 'block';
+                        // Show sections with fade-in
+                        const allSections = document.querySelectorAll('.section');
+                        allSections.forEach(section => {
+                            section.style.display = 'block';
+                            section.classList.add('visible'); // Trigger fade-in
+                        });
+                        setTimeout(() => {
+                            mainContent.classList.add('loaded');
+                        }, 50);
+                    }
+                }, 200); // Main content visible at 200ms
+            });
+        }
+        
+        // Initialize immediately when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
         
         // Helper wallet functions
         window.createWallet = function() {
@@ -1634,8 +1493,18 @@
     </script>
 </head>
 <body>
-    <div class="container">
-        <h1>🍷 vWallet</h1>
+    <!-- Loading screen shown immediately -->
+    <div class="container" id="loading-screen">
+        <h1><span class="vw-icon" aria-hidden="true"></span> vWallet</h1>
+        <div class="app-loading">
+            <p>Loading your premium wallet experience...</p>
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
+    <!-- Main content hidden until app is ready -->
+    <div class="container main-content" id="main-content">
+        <h1><span class="vw-icon" aria-hidden="true"></span> vWallet</h1>
         <p style="text-align: center; color: #e8d5c3; font-size: 16px; margin-top: -10px; margin-bottom: 30px;">
             Premium smart wallet with permanent address
         </p>
@@ -1667,12 +1536,6 @@
             </div>
             
             <!-- Enhanced Security Options -->
-            <div style="margin-bottom: 30px;">
-                <h4 style="color: #444; margin-bottom: 15px; font-size: 14px; font-weight: 600;">🛡️ Enhanced Security Options</h4>
-                <button onclick="loginWithPasskeyZkLogin()" style="background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); color: #333; width: 100%; margin-bottom: 10px;">
-                    🔑 Google + Passkey Security
-                </button>
-                <p style="font-size: 11px; color: #888; margin: 0;">Combines Google OAuth with passkey for maximum security</p>
                 
                 <button onclick="loginWithZkLogin()" style="background: #4285f4; color: white; margin-top: 15px;">
                     🌐 Login with Google (zkLogin)
