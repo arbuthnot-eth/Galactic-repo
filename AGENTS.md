@@ -12,6 +12,12 @@
   - Root HTML: `vWallet-dev.html` (dev), `vWallet.html` (built single-file output).
   - Config: `vite.config.ts`, `tsconfig.json`. Auth callback assets under `auth/`.
 
+- **CRITICAL Build Workflow**:
+  - **ONLY EDIT `vWallet-dev.html`** - This is the development template
+  - **NEVER EDIT `vWallet.html`** - This is auto-generated during build
+  - Build process: `npm run build` compiles TypeScript and injects bundle into `vWallet.html`
+  - Changes to `vWallet-dev.html` are automatically applied to `vWallet.html` during build
+
 - **Technology Stack**
   - TypeScript, ESNext with 2-space indentation, semicolons, and single quotes
   - Browser-based wallet for Sui blockchain using Mysten SDKs
@@ -19,10 +25,32 @@
   - Cloudflare Tunnel for secure development previews
   - IIFE (Immediately Invoked Function Expression) bundle for browser compatibility
 
+- **Mysten Labs Dependencies & Documentation**
+  - **@mysten/bcs** (^1.7.0): Binary Canonical Serialization utilities
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/bcs) | [Docs](https://docs.sui.io/references/framework/sui-framework/bcs)
+  - **@mysten/dapp-kit** (^0.17.7): React hooks and components for Sui dApps
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/dapp-kit) | [Docs](https://sdk.mystenlabs.com/dapp-kit)
+  - **@mysten/graphql-transport** (^0.3.9): GraphQL transport layer for Sui
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/graphql-transport) | [Docs](https://docs.sui.io/guides/developer/sui-101/graphql-rpc)
+  - **@mysten/kiosk** (^0.12.26): Kiosk SDK for trading and commerce
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/kiosk) | [Docs](https://sdk.mystenlabs.com/kiosk)
+  - **@mysten/seal** (^0.5.2): Decentralized secrets management
+    - [GitHub](https://github.com/MystenLabs/seal) | [Docs](https://seal.mystenlabs.com/)
+  - **@mysten/sui** (^1.37.6): Core Sui TypeScript SDK
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/typescript) | [Docs](https://docs.sui.io/guides/developer/first-app/client-tssdk)
+  - **@mysten/suins** (^0.7.36): SuiNS name service integration
+    - [GitHub](https://github.com/MystenLabs/suins-contracts) | [Docs](https://docs.sui.io/standards/sui-name-service)
+  - **@mysten/wallet-standard** (^0.16.14): Wallet standard implementation
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/wallet-adapter/wallet-standard) | [Docs](https://docs.sui.io/standards/wallet-standard)
+  - **@mysten/walrus** (^0.6.7): Decentralized blob storage using Sui
+    - [GitHub](https://github.com/MystenLabs/walrus) | [Docs](https://docs.wal.app)
+  - **@mysten/zksend** (^0.13.24): Zero-knowledge send functionality
+    - [GitHub](https://github.com/MystenLabs/sui/tree/main/sdk/zksend) | [Docs](https://sdk.mystenlabs.com/zksend)
+
 - **Critical Files to Review**
   - `src/index.ts`: Main SDK bundling and browser API exposure
-  - `vWallet-dev.html`: Development HTML template
-  - `vWallet.html`: Production single-file output
+  - `vWallet-dev.html`: Development HTML template (**ONLY FILE TO EDIT**)
+  - `vWallet.html`: Production single-file output (**AUTO-GENERATED - DO NOT EDIT**)
   - `vite.config.ts`: Build configuration
   - `package.json`: Dependencies and scripts
 
@@ -74,7 +102,6 @@
 ### 5. Run & Observe - Monitor Execution Outputs
 **Execute and monitor the following commands:**
 
-- **Development Mode**: `npm run dev` (Vite on `http://localhost:5173`)
 - **Tunnel Mode**: `npm run tunnel-dev` (Cloudflare Tunnel + Vite with HTTPS)
 - **Build Process**: `npm run build` (Creates IIFE bundle)
 - **Injection Test**: `npm run inject` (Injects bundle into HTML)
@@ -119,8 +146,7 @@
 ```bash
 # 1. Context Gathering
 git status
-npm install
-npm run dev
+npm run tunnel-dev
 
 # 2. Plan Creation
 # Review src/index.ts and HTML wallet functions
@@ -136,7 +162,6 @@ npm test
 
 # 5. Run & Observe
 npm run build
-npm run inject
 open vWallet.html
 
 # 6. Detailed Testing
