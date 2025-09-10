@@ -14,6 +14,7 @@ import * as WalletStandard from '@mysten/wallet-standard';
 import * as GraphQLTransport from '@mysten/graphql-transport';
 import * as ZkSend from '@mysten/zksend';
 import * as Kiosk from '@mysten/kiosk';
+import * as Bip39 from '@scure/bip39';
 
 // Re-export Sui with specific imports using proper package exports
 const Sui = {
@@ -48,6 +49,7 @@ declare global {
       ZkSend: typeof ZkSend;
       Kiosk: typeof Kiosk;
       ZkLogin: typeof ZkLogin;
+      Bip39: typeof Bip39;
     };
   }
 }
@@ -63,6 +65,7 @@ window.SuiSDK = {
   GraphQLTransport,
   ZkSend,
   Kiosk,
+  Bip39,
   // Also expose ZkLogin separately for convenience
   ZkLogin,
 };

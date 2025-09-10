@@ -179,7 +179,7 @@
     <script type="module">
         let currentWallet=null,currentNetwork='devnet';
         function waitForSDKs(){return new Promise(r=>{window.SuiSDK?r():setTimeout(()=>waitForSDKs().then(r),100)})}
-        function logOutput(e,t=!1){const n=document.getElementById('output'),o=new Date().toLocaleTimeString(),r=t?'[ERROR]':'[INFO]';n.textContent+=`${o} ${r} ${e}\n`;n.scrollTop=n.scrollHeight}
+        function logOutput(e,t=!1){const n=document.getElementById('output'),o=t?'[ERROR]':'[INFO]',r=t?`\n${o} ${e}`:`${o} ${e}`;n.textContent+=`${r}\n`;n.scrollTop=n.scrollHeight}
         
         
         async function createNewWallet(){try{logOutput('Creating new wallet...');const e=createWallet();currentWallet=e;document.getElementById('currentAddress').textContent=e.address;document.getElementById('walletInfo').style.display='block';document.getElementById('zkLoginInfo').style.display='none';logOutput('Wallet created successfully!');logOutput(`Address: ${e.address}`);await getWalletBalance()}catch(e){logOutput('Error creating wallet: '+e.message,!0)}}
@@ -295,8 +295,7 @@
                 
                 // Step 1: Get OAuth URL
                 const authUrl = buildGoogleAuthUrl();
-                logOutput('OAuth URL: ' + authUrl);
-                
+
                 // Step 2: Open popup and wait for token
                 const jwt = await openOAuthPopup(authUrl);
                 
@@ -309,16 +308,13 @@
                 // Step 3: Parse and validate JWT
                 const jwtPayload = parseJWT(jwt);
                 validateJWT(jwtPayload); // Validate the JWT
-                logOutput('JWT issuer: ' + jwtPayload.iss);
-                logOutput('JWT subject: ' + jwtPayload.sub);
-                logOutput('JWT validation: ✅ Valid');
+                logOutput('✅ JWT validation successful');
                 
                 // Step 4: Generate zkLogin proof
                 logOutput('Step 3: Generating zkLogin proof...');
                 const zkLoginInputs = await generateZkLoginInputs(jwt, jwtPayload);
                 
                 // Step 5: Derive Sui address
-                logOutput('Step 4: Deriving Sui address from zkLogin proof...');
                 const suiAddress = await deriveSuiAddress(zkLoginInputs);
                 
                 // Step 6: Create wallet object with zkLogin keypair
@@ -385,7 +381,6 @@
         // Open OAuth popup and wait for result
         async function openOAuthPopup(authUrl) {
             return new Promise((resolve, reject) => {
-                logOutput('Opening Google OAuth popup...');
                 
                 const popup = window.open(
                     authUrl,
@@ -408,7 +403,7 @@
                     if (event.data.type === 'zklogin_oauth_success') {
                         window.removeEventListener('message', messageHandler);
                         clearInterval(checkClosed);
-                        logOutput('✅ OAuth successful - Real JWT received from Google!');
+                        logOutput('✅ OAuth successful');
                         resolve(event.data.idToken);
                     } else if (event.data.type === 'zklogin_oauth_error') {
                         window.removeEventListener('message', messageHandler);
@@ -498,8 +493,6 @@
         // Generate zkLogin inputs (simplified for demo)
         async function generateZkLoginInputs(jwt, jwtPayload) {
             try {
-                logOutput('Generating zkLogin proof inputs...');
-                
                 // Validate JWT first
                 validateJWT(jwtPayload);
                 
@@ -515,9 +508,6 @@
                 const saltBytes = new Uint8Array(identityHash).slice(0, 16); // Take first 16 bytes
                 const salt = Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('');
                 
-                logOutput(`Issuer: ${issuer}`);
-                logOutput(`Key claim: ${keyClaimName} = ${keyClaimValue}`);
-                logOutput(`Salt: ${salt}`);
                 
                 // In a real implementation, you would:
                 // 1. Get the zkLogin proving service endpoint
@@ -541,8 +531,7 @@
                     },
                     addressSeed: keyClaimValue + '_' + salt
                 };
-                
-                logOutput('zkLogin inputs generated successfully');
+
                 return zkLoginInputs;
                 
             } catch (error) {
@@ -553,8 +542,6 @@
         // Derive Sui address from zkLogin inputs
         async function deriveSuiAddress(zkLoginInputs) {
             try {
-                logOutput('Deriving Sui address from zkLogin proof...');
-                
                 // In real implementation, you would use:
                 // const address = await window.SuiSDK.ZkLogin.computeZkLoginAddress(zkLoginInputs);
                 
@@ -567,7 +554,7 @@
                 // Create a Sui address format (0x + 64 hex chars)
                 const suiAddress = '0x' + addressBytes.map(b => b.toString(16).padStart(2, '0')).join('');
                 
-                logOutput(`Derived address: ${suiAddress}`);
+
                 return suiAddress;
                 
             } catch (error) {
@@ -673,7 +660,6 @@
                     const cacheAge = Date.now() - data.cachedAt;
                     if (cacheAge < 24 * 60 * 60 * 1000) {
                         document.getElementById('restoreZkLoginBtn').style.display = 'inline-block';
-                        logOutput('💾 Cached zkLogin found - click "Restore zkLogin" to use it');
                     } else {
                         localStorage.removeItem('zkLoginCache');
                     }
@@ -1329,7 +1315,7 @@
             // No reliance on browser storage; always enable passkey access
             const connectBtn = document.getElementById('connectPasskeyBtn');
             if (connectBtn) connectBtn.style.display = 'inline-block';
-            logOutput('🍷 Welcome back! Your vWallet is ready - access it with your passkey');
+            logOutput('🍷 vWallet Passkey detected. Welcome back');
         }
         
         // App initialization and loading management
@@ -1602,7 +1588,9 @@
         <div class="section">
             <h3>Console Output</h3>
             <button onclick="clearOutput()">Clear Output</button>
-            <div id="output">Wallet initialized. SDKs loading...</div>
+            <div id="output">Welcome to vWallet
+
+</div>
         </div>
     </div>
 </body>

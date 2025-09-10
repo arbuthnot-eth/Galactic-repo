@@ -26,7 +26,8 @@
     "@mysten/suins": "^0.7.36",
     "@mysten/wallet-standard": "^0.16.14",
     "@mysten/walrus": "^0.6.7",
-    "@mysten/zksend": "^0.13.24"
+    "@mysten/zksend": "^0.13.24",
+    "@scure/bip39": "2.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

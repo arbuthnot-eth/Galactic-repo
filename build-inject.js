@@ -48,7 +48,7 @@ try {
   console.log('✅ Bundle injected successfully!');
   console.log(`📁 Output: ${outputPath}`);
   console.log(`📏 File size: ${fileSize} MB`);
-  console.log('🌐 Built single-file bundle. Note: Passkeys require trusted HTTPS (not file://).');
+  console.log('🌐 Built single-file bundle');
   
 } catch (error) {
   console.error('❌ Error injecting bundle:', error.message);
