@@ -1,25 +1,25 @@
-module smart_wallet::wallet {
-    use sui::object::{self, UID, id_address};
-    use sui::tx_context::{self, TxContext};
-    use sui::vec_map::{self, VecMap};
-    use sui::coin::{self, Coin};
-    use sui::sui::SUI;
+#[allow(duplicate_alias)]
+module vwallet_core::wallet {
+    use sui::object::{Self as object, id_address, UID};
+    use sui::tx_context;
+    use sui::vec_map::{Self as vec_map, VecMap};
     use sui::transfer;
-    use sui::clock::{self, Clock};
+    use sui::clock::{Self as clock, Clock};
     use sui::dynamic_field as df;
     use sui::event;
+    use sui::bcs;
+    use sui::coin::{Self, Coin};
+    use sui::balance::{Self, Balance};
+    use sui::sui::SUI;
     use multisig::multisig;
-    use smart_wallet::helpers;
-    use smart_wallet::member_index;
-    use smart_wallet::utils;
+    use vwallet_core::member_index;
 
-    // ──────────────────────────────────────────────────────────────
-    // Errors (uint64 codes – keep them stable for front‑ends)
-    // ──────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
+    // Errors (uint64 codes - keep them stable for front-ends)
+    // -----------------------------------------------------------------
     const E_NOT_MEMBER: u64 = 0;
     const E_ALREADY_APPROVED: u64 = 1;
     const E_PROPOSAL_EXPIRED: u64 = 2;
-    const E_INVALID_THRESHOLD: u64 = 3;
     const E_INVALID_ROLE: u64 = 4;
     const E_NOT_ENOUGH_APPROVALS: u64 = 5;
     const E_ALREADY_EXECUTED: u64 = 6;
@@ -28,22 +28,23 @@ module smart_wallet::wallet {
     const E_DUPLICATE_MEMBER: u64 = 9;
     const E_WEIGHT_OVERFLOW: u64 = 10;
 
-    // ──────────────────────────────────────────────────────────────
-    // Role – stores voting weight and a permission bitmask
+    // -----------------------------------------------------------------
+    // Role - stores voting weight and a permission bitmask
     //   permissions: 1 = propose, 2 = approve, 4 = execute
-    // ──────────────────────────────────────────────────────────────
-    struct Role has store, copy, drop {
+    // -----------------------------------------------------------------
+    public struct Role has store, copy, drop {
         name: vector<u8>,
         weight: u64,
         permissions: u64,
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // SmartWallet – core on‑chain object
-    //   * threshold is **not** stored here any more – each Proposal
+
+    // -----------------------------------------------------------------
+    // SmartWallet - core on-chain object
+    //   * threshold is **not** stored here any more - each Proposal
     //     carries its own threshold.
-    // ──────────────────────────────────────────────────────────────
-    struct SmartWallet has key, store {
+    // -----------------------------------------------------------------
+    public struct SmartWallet has key, store {
         id: UID,
         name: vector<u8>,
         version: u64,
@@ -51,72 +52,73 @@ module smart_wallet::wallet {
         proposals: VecMap<u64, Proposal>,
         created_at: u64,
         recovery_key: address,
+        balance: Balance<SUI>,
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // Proposal – immutable once created, but carries mutable
+    // -----------------------------------------------------------------
+    // Proposal - immutable once created, but carries mutable
     // approvals, execution flag and **its own** threshold.
     //   ms_id is the deterministic multisig identifier for this
-    //   member set + threshold (off‑chain verification aid).
-    // ──────────────────────────────────────────────────────────────
-    struct Proposal has store {
+    //   member set + threshold (off-chain verification aid).
+    // -----------------------------------------------------------------
+    public struct Proposal has store {
         id: u64,
         proposer: address,
         action: Action,
-        approvals: VecMap<address, u64>, // address → weight
+        approvals: VecMap<address, u64>, // address -> weight
         total_weight: u64,
         executed: bool,
         deadline: u64,          // 0 = no deadline
         conditions: vector<Condition>,
-        threshold: u64,         // per‑proposal voting threshold
+        threshold: u64,         // per-proposal voting threshold
         ms_id: address,         // deterministic multisig ID
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // Action – generic payload that can be extended via the
-    //          `add_extension` entry‑point.
-    // ──────────────────────────────────────────────────────────────
-    struct Action has store, drop {
+    // -----------------------------------------------------------------
+    // Action - generic payload that can be extended via the
+    //          `add_extension` entry-point.
+    // -----------------------------------------------------------------
+    public struct Action has store, drop, copy {
         kind: vector<u8>,
         target: address,
         data: vector<u8>,
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // Condition – placeholder for oracle / block‑height checks.
-    // ──────────────────────────────────────────────────────────────
-    struct Condition has store, drop {
+    // -----------------------------------------------------------------
+    // Condition - placeholder for oracle / block-height checks.
+    // -----------------------------------------------------------------
+    public struct Condition has store, drop {
         kind: vector<u8>,
         value: vector<u8>,
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // Events – emitted for indexing & auditability
-    // ──────────────────────────────────────────────────────────────
-    struct WalletCreated has copy, drop {
+    // -----------------------------------------------------------------
+    // Events - emitted for indexing & auditability
+    // -----------------------------------------------------------------
+    public struct WalletCreated has copy, drop {
         wallet_id: address,
         name: vector<u8>,
         members: vector<address>,
         threshold: u64,
     }
 
-    struct MemberAdded has copy, drop {
+    public struct MemberAdded has copy, drop {
         wallet_id: address,
         member: address,
         role: Role,
     }
 
-    struct MemberRemoved has copy, drop {
+    public struct MemberRemoved has copy, drop {
         wallet_id: address,
         member: address,
     }
 
-    struct ThresholdUpdated has copy, drop {
+    public struct ThresholdUpdated has copy, drop {
         wallet_id: address,
         new_threshold: u64,
     }
 
-    struct ProposalCreated has copy, drop {
+    public struct ProposalCreated has copy, drop {
         wallet_id: address,
         proposal_id: u64,
         proposer: address,
@@ -125,7 +127,7 @@ module smart_wallet::wallet {
         ms_id: address,
     }
 
-    struct ProposalApproved has copy, drop {
+    public struct ProposalApproved has copy, drop {
         wallet_id: address,
         proposal_id: u64,
         approver: address,
@@ -133,36 +135,36 @@ module smart_wallet::wallet {
         total_weight: u64,
     }
 
-    struct ProposalExecuted has copy, drop {
+    public struct ProposalExecuted has copy, drop {
         wallet_id: address,
         proposal_id: u64,
     }
 
-    // ──────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     // Constants
-    // ──────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     const CURRENT_VERSION: u64 = 1;
 
-    // ──────────────────────────────────────────────────────────────
-    // PUBLIC ENTRY‑POINTS
-    // ──────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
+    // PUBLIC ENTRY-POINTS
+    // -----------------------------------------------------------------
 
-    /// Initialise a brand‑new wallet. No global threshold is stored – each
+    /// Initialise a brand-new wallet. No global threshold is stored - each
     /// proposal decides its own.
-    public entry fun create_wallet(
+    public fun create_wallet(
         initial_signer: address,
         recovery_key: address,
         name: vector<u8>,
         clock: &Clock,
-        ctx: &mut TxContext,
-    ) {
+        ctx: &mut tx_context::TxContext,
+    ): SmartWallet {
         // Guard against duplicate creation (unlikely but defensive)
         assert!(initial_signer != @0x0, E_UNAUTHORIZED);
         let admin_role = Role { name: b"admin", weight: 1, permissions: 7 };
         let mut members = vec_map::empty();
         vec_map::insert(&mut members, initial_signer, admin_role);
 
-        let wallet = SmartWallet {
+        let mut wallet = SmartWallet {
             id: object::new(ctx),
             name,
             version: CURRENT_VERSION,
@@ -170,37 +172,38 @@ module smart_wallet::wallet {
             proposals: vec_map::empty(),
             created_at: clock::timestamp_ms(clock),
             recovery_key,
+            balance: balance::zero<SUI>(),
         };
 
         // Store an empty namespace for future extensions
         df::add(&mut wallet.id, b"extensions", vector::empty<vector<u8>>());
 
-        // Compute and persist the deterministic multisig identifier (member‑set ID)
-        helpers::store_multisig_id(&wallet);
+        // Compute and persist the deterministic multisig identifier (member-set ID)
+        store_multisig_id(&mut wallet);
 
         // Emit creation event
         event::emit(WalletCreated {
             wallet_id: id_address(&wallet),
             name,
             members: vector[initial_signer],
-            threshold: 0, // 0 signals “per‑proposal” threshold
+            threshold: 0, // 0 signals “per-proposal” threshold
         });
 
-        // Transfer the newly minted object to the caller
-        transfer::transfer(wallet, tx_context::sender(ctx));
+        // Return the wallet object for composability
+        wallet
     }
 
     /// Add a new member. The caller must be an existing member with the
     /// `propose` permission **or** the recovery key.
-    public entry fun add_member(
+    public fun add_member(
         wallet: &mut SmartWallet,
+        registry: &mut member_index::Registry,
         new_signer: address,
-        pubkey: vector<u8>,          // raw public‑key bytes (stored for ID computation)
         role_name: vector<u8>,
         weight: u64,
         permissions: u64,
         auth_signer: address,
-        ctx: &mut TxContext,
+        _ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         // Auth check
@@ -211,18 +214,16 @@ module smart_wallet::wallet {
         // Prevent duplicate members
         assert!(!vec_map::contains(&wallet.members, &new_signer), E_DUPLICATE_MEMBER);
 
-        // Weight sanity – avoid overflow when summed later
+        // Weight sanity - avoid overflow when summed later
         assert!(weight > 0, E_WEIGHT_OVERFLOW);
         let role = Role { name: role_name, weight, permissions };
         vec_map::insert(&mut wallet.members, new_signer, role);
-        // Store the raw public key for deterministic ID recomputation
-        df::add(&mut wallet.id, b"pubkey_" ++ bcs::to_bytes(&new_signer), pubkey);
 
-        // Update member‑set ID (multisig_id)
-        helpers::store_multisig_id(wallet);
+        // Update member-set ID (multisig_id)
+        store_multisig_id(wallet);
 
-        // Update reverse index (optional, cheap)
-        member_index::add_wallet_for_member(new_signer, id_address(wallet));
+        // Update reverse index
+        member_index::add_wallet_for_member(registry, new_signer, id_address(wallet));
 
         // Emit event
         event::emit(MemberAdded {
@@ -233,11 +234,12 @@ module smart_wallet::wallet {
     }
 
     /// Remove an existing member. Same auth rules as `add_member`.
-    public entry fun remove_member(
+    public fun remove_member(
         wallet: &mut SmartWallet,
+        registry: &mut member_index::Registry,
         signer: address,
         auth_signer: address,
-        ctx: &mut TxContext,
+        _ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         assert!(
@@ -247,12 +249,10 @@ module smart_wallet::wallet {
         assert!(vec_map::contains(&wallet.members, &signer), E_NOT_MEMBER);
 
         vec_map::remove(&mut wallet.members, &signer);
-        // Clean up stored pubkey
-        df::remove(&mut wallet.id, b"pubkey_" ++ bcs::to_bytes(&signer));
         // Update multisig_id
-        helpers::store_multisig_id(wallet);
+        store_multisig_id(wallet);
         // Update reverse index
-        member_index::remove_wallet_for_member(signer, id_address(wallet));
+        member_index::remove_wallet_for_member(registry, signer, id_address(wallet));
 
         event::emit(MemberRemoved {
             wallet_id: id_address(wallet),
@@ -260,22 +260,22 @@ module smart_wallet::wallet {
         });
     }
 
-    /// Update **per‑proposal** threshold – convenience entry‑point.
+    /// Update **per-proposal** threshold - convenience entry-point.
     /// It does **not** affect existing proposals (they keep their own value).
-    public entry fun update_global_threshold(
+    public fun update_global_threshold(
         wallet: &mut SmartWallet,
         new_threshold: u64,
         auth_signer: address,
-        ctx: &mut TxContext,
+        _ctx: &mut tx_context::TxContext,
     ) {
-        // Kept for backward compatibility – UI can read it via a dynamic field.
+        // Kept for backward compatibility - UI can read it via a dynamic field.
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         assert!(
             vec_map::contains(&wallet.members, &auth_signer) || wallet.recovery_key == auth_signer,
             E_UNAUTHORIZED
         );
 
-        // Store as a dynamic field “global_threshold” for UI consumption.
+        // Store as a dynamic field "global_threshold" for UI consumption.
         df::add(&mut wallet.id, b"global_threshold", bcs::to_bytes(&new_threshold));
         event::emit(ThresholdUpdated {
             wallet_id: id_address(wallet),
@@ -285,7 +285,7 @@ module smart_wallet::wallet {
 
     /// Propose a new action. The proposal carries its own threshold and
     /// deterministic multisig identifier.
-    public entry fun propose_action(
+    public fun propose_action(
         wallet: &mut SmartWallet,
         proposal_id: u64,
         action_kind: vector<u8>,
@@ -294,8 +294,8 @@ module smart_wallet::wallet {
         proposal_threshold: u64,
         deadline: u64,
         conditions: vector<Condition>,
-        clock: &Clock,
-        ctx: &mut TxContext,
+        _clock: &Clock,
+        ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         let sender = tx_context::sender(ctx);
@@ -307,7 +307,7 @@ module smart_wallet::wallet {
         assert!(!vec_map::contains(&wallet.proposals, &proposal_id), E_INVALID_ROLE);
 
         // Compute deterministic multisig ID for this exact member set + threshold
-        let ms_id = helpers::compute_multisig_id(&wallet.members, proposal_threshold);
+        let ms_id = compute_multisig_id(&wallet.members, proposal_threshold);
 
         let action = Action { kind: action_kind, target, data };
         let proposal = Proposal {
@@ -336,11 +336,11 @@ module smart_wallet::wallet {
 
     /// Approve a proposal. If the accumulated weight reaches the proposal’s
     /// threshold the proposal is executed automatically.
-    public entry fun approve_proposal(
+    public fun approve_proposal(
         wallet: &mut SmartWallet,
         proposal_id: u64,
         clock: &Clock,
-        ctx: &mut TxContext,
+        ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         let sender = tx_context::sender(ctx);
@@ -348,6 +348,7 @@ module smart_wallet::wallet {
         let role = vec_map::get(&wallet.members, &sender);
         assert!(role.permissions & 2 == 2, E_UNAUTHORIZED); // must be able to approve
 
+        let wallet_id = id_address(wallet);
         let proposal = vec_map::get_mut(&mut wallet.proposals, &proposal_id);
         assert!(!proposal.executed, E_ALREADY_EXECUTED);
         assert!(
@@ -358,75 +359,79 @@ module smart_wallet::wallet {
 
         // Record approval and update total weight (checked for overflow)
         vec_map::insert(&mut proposal.approvals, sender, role.weight);
-        proposal.total_weight = utils::safe_add_u64(proposal.total_weight, role.weight);
+        proposal.total_weight = proposal.total_weight + role.weight;
 
         // Emit approval event
         event::emit(ProposalApproved {
-            wallet_id: id_address(wallet),
+            wallet_id,
             proposal_id,
-            approver: sender,
+            approver: copy sender,
             weight: role.weight,
             total_weight: proposal.total_weight,
         });
 
-        // Auto‑execute when threshold is met
+        // Auto-execute when threshold is met
         if (proposal.total_weight >= proposal.threshold) {
             execute_proposal(wallet, proposal_id, clock, ctx);
         };
     }
 
-    /// Internal executor – can be called automatically from `approve_proposal`
+    /// Internal executor - can be called automatically from `approve_proposal`
     /// or directly by an address with the `execute` permission.
     fun execute_proposal(
         wallet: &mut SmartWallet,
         proposal_id: u64,
         clock: &Clock,
-        ctx: &mut TxContext,
+        ctx: &mut tx_context::TxContext,
     ) {
+        let wallet_id = id_address(wallet);
         let proposal = vec_map::get_mut(&mut wallet.proposals, &proposal_id);
         assert!(!proposal.executed, E_ALREADY_EXECUTED);
         assert!(proposal.total_weight >= proposal.threshold, E_NOT_ENOUGH_APPROVALS);
-        assert!(helpers::check_conditions(&proposal.conditions, clock), E_INVALID_ROLE);
+        assert!(check_conditions(&proposal.conditions, clock), E_INVALID_ROLE);
 
-        // Dispatch based on the action kind – extendable without touching core logic.
-        if (proposal.action.kind == b"transfer") {
-            helpers::execute_transfer(wallet, &proposal.action, ctx);
-        } else if (proposal.action.kind == b"defi_deposit") {
+        // Copy action data before executing to avoid borrowing conflicts
+        let action_copy = proposal.action;
+        proposal.executed = true;
+
+        // Dispatch based on the action kind - extendable without touching core logic.
+        if (action_copy.kind == b"transfer") {
+            execute_transfer(wallet, &action_copy, ctx);
+        } else if (action_copy.kind == b"defi_deposit") {
             // Placeholder for future DeFi integration
-        } else if (proposal.action.kind == b"cross_chain") {
-            // Placeholder for future cross‑chain integration
+        } else if (action_copy.kind == b"cross_chain") {
+            // Placeholder for future cross-chain integration
         } else {
-            // Unknown action – keep as no‑op but still mark executed to avoid loops.
+            // Unknown action - keep as no-op but still mark executed to avoid loops.
         };
 
-        proposal.executed = true;
         event::emit(ProposalExecuted {
-            wallet_id: id_address(wallet),
+            wallet_id,
             proposal_id,
         });
     }
 
-    /// Recover the wallet – wipes the member set and creates a fresh admin.
-    public entry fun recover(
+    /// Recover the wallet - wipes the member set and creates a fresh admin.
+    public fun recover(
         wallet: &mut SmartWallet,
+        registry: &mut member_index::Registry,
         new_signer: address,
-        pubkey: vector<u8>,
         role_name: vector<u8>,
         weight: u64,
         permissions: u64,
         recovery_signer: address,
-        ctx: &mut TxContext,
+        _ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         assert!(wallet.recovery_key == recovery_signer, E_UNAUTHORIZED);
 
-        // Clear members and reverse‑index entries
+        // Clear members and reverse-index entries
         let old_members = wallet.members;
         let keys = vec_map::keys(&old_members);
         let mut i = 0;
         while (i < vector::length(&keys)) {
             let member = vector::borrow(&keys, i);
-            member_index::remove_wallet_for_member(*member, id_address(wallet));
+            member_index::remove_wallet_for_member(registry, *member, id_address(wallet));
             i = i + 1;
         };
         wallet.members = vec_map::empty();
@@ -434,23 +439,22 @@ module smart_wallet::wallet {
         // Insert the new admin
         let role = Role { name: role_name, weight, permissions };
         vec_map::insert(&mut wallet.members, new_signer, role);
-        df::add(&mut wallet.id, b"pubkey_" ++ bcs::to_bytes(&new_signer), pubkey);
 
-        // Re‑compute deterministic ID (now based on a single member)
-        helpers::store_multisig_id(wallet);
+        // Re-compute deterministic ID (now based on a single member)
+        store_multisig_id(wallet);
 
         // Update reverse index for the fresh admin
-        member_index::add_wallet_for_member(new_signer, id_address(wallet));
+        member_index::add_wallet_for_member(registry, new_signer, id_address(wallet));
     }
 
-    /// Generic extension point – callers can store any arbitrary key/value
-    /// pair inside the wallet’s dynamic‑field namespace.
-    public entry fun add_extension(
+    /// Generic extension point - callers can store any arbitrary key/value
+    /// pair inside the wallet’s dynamic-field namespace.
+    public fun add_extension(
         wallet: &mut SmartWallet,
         key: vector<u8>,
         value: vector<u8>,
         auth_signer: address,
-        ctx: &mut TxContext,
+        _ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         assert!(
@@ -460,9 +464,43 @@ module smart_wallet::wallet {
         df::add(&mut wallet.id, key, value);
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // PUBLIC VIEW‑ONLY HELPERS
-    // ──────────────────────────────────────────────────────────────
+    /// Deposit SUI coins into the wallet
+    public fun deposit(
+        wallet: &mut SmartWallet,
+        coin: Coin<SUI>,
+        _ctx: &mut tx_context::TxContext,
+    ) {
+        assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
+        let coin_balance = coin::into_balance(coin);
+        balance::join(&mut wallet.balance, coin_balance);
+    }
+
+    /// Withdraw SUI coins from the wallet (requires authorization)
+    public fun withdraw(
+        wallet: &mut SmartWallet,
+        amount: u64,
+        auth_signer: address,
+        ctx: &mut tx_context::TxContext,
+    ): Coin<SUI> {
+        assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
+        assert!(
+            vec_map::contains(&wallet.members, &auth_signer) || wallet.recovery_key == auth_signer,
+            E_UNAUTHORIZED
+        );
+        assert!(balance::value(&wallet.balance) >= amount, E_NOT_ENOUGH_APPROVALS);
+        
+        let withdraw_balance = balance::split(&mut wallet.balance, amount);
+        coin::from_balance(withdraw_balance, ctx)
+    }
+
+    /// Get the current balance of the wallet
+    public fun get_balance(wallet: &SmartWallet): u64 {
+        balance::value(&wallet.balance)
+    }
+
+    // -----------------------------------------------------------------
+    // PUBLIC VIEW-ONLY HELPERS
+    // -----------------------------------------------------------------
     public fun get_wallet_version(wallet: &SmartWallet): u64 {
         wallet.version
     }
@@ -471,23 +509,116 @@ module smart_wallet::wallet {
         vec_map::keys(&wallet.proposals)
     }
 
-    public fun get_proposal(wallet: &SmartWallet, pid: u64): Proposal {
-        vec_map::get(&wallet.proposals, &pid)
+    public fun proposal_exists(wallet: &SmartWallet, pid: u64): bool {
+        vec_map::contains(&wallet.proposals, &pid)
     }
 
-    // ──────────────────────────────────────────────────────────────
+    // -----------------------------------------------------------------
     // INTERNAL HELPERS (pure, no gas)
-    // ──────────────────────────────────────────────────────────────
-    fun sum_weights(members: &VecMap<address, Role>): u64 {
+    // -----------------------------------------------------------------
+
+    // -----------------------------------------------------------------
+    // Helper Functions (moved from helpers.move to avoid circular deps)
+    // -----------------------------------------------------------------
+
+    /// Compute the deterministic multisig identifier for a given member set
+    /// and a specific threshold. This is a thin wrapper around the
+    /// pure function in `multisig::multisig`. Because the function is pure,
+    /// calling it on-chain costs no gas.
+    public fun compute_multisig_id(
+        members: &VecMap<address, Role>,
+        threshold: u64,
+    ): address {
+        // Gather public keys and **weights as u8** (multisig lib expects u8).
+        let pks: vector<vector<u8>> = vector[];
+        let wts: vector<u8> = vector[];
         let keys = vec_map::keys(members);
-        let mut total: u64 = 0;
-        let mut i = 0;
-        while (i < vector::length(&keys)) {
-            let member = vector::borrow(&keys, i);
+        let i = 0;
+        let (final_pks, final_wts) = compute_multisig_loop(&keys, pks, wts, i, members);
+        
+        // Use the actual multisig library to derive the address
+        multisig::derive_multisig_address(final_pks, final_wts, (threshold as u16))
+    }
+
+    // Helper function to work around mut keyword limitations
+    fun compute_multisig_loop(
+        keys: &vector<address>,
+        mut pks: vector<vector<u8>>,
+        mut wts: vector<u8>,
+        i: u64,
+        members: &VecMap<address, Role>
+    ): (vector<vector<u8>>, vector<u8>) {
+        if (i >= vector::length(keys)) {
+            (pks, wts)
+        } else {
+            let member = vector::borrow(keys, i);
             let role = vec_map::get(members, member);
-            total = utils::safe_add_u64(total, role.weight);
+            // For now, return empty pubkey since we don't have a proper wallet context
+            // In a real implementation, pubkeys would be stored on the wallet's UID
+            let pk = vector::empty<u8>();
+            vector::push_back(&mut pks, pk);
+            // Truncate weight safely - weights >255 are unsupported by the
+            // underlying multisig lib; we guard against that at insertion.
+            vector::push_back(&mut wts, (role.weight as u8));
+            let i_new = i + 1;
+            compute_multisig_loop(keys, pks, wts, i_new, members)
+        }
+    }
+
+    /// Store (or update) the wallet-wide deterministic multisig identifier.
+    /// The identifier is written under the well-known key `"multisig_id"` so
+    /// that indexers and off-chain services can read it without scanning the
+    /// whole object.
+    public fun store_multisig_id(wallet: &mut SmartWallet) {
+        // For wallets that still keep a *global* threshold (legacy UI) we
+        // read it from a dynamic field; otherwise we use 1 as default.
+        let threshold = if (df::exists_(&wallet.id, b"global_threshold")) {
+            let threshold_bytes = df::borrow(&wallet.id, b"global_threshold");
+            bcs::peel_u64(&mut bcs::new(*threshold_bytes))
+        } else {
+            1u64 // Default threshold of 1 for multisig library compatibility
+        };
+        let ms_id = compute_multisig_id(&wallet.members, threshold);
+        if (df::exists_(&wallet.id, b"multisig_id")) {
+            df::remove<vector<u8>, address>(&mut wallet.id, b"multisig_id");
+        };
+        df::add(&mut wallet.id, b"multisig_id", ms_id);
+    }
+
+    /// Minimal condition checker - replace with oracle integration later.
+    public fun check_conditions(conds: &vector<Condition>, clock: &Clock): bool {
+        // Example: block-height condition
+        let mut i = 0;
+        while (i < vector::length(conds)) {
+            let c = vector::borrow(conds, i);
+            if (c.kind == b"block_height") {
+                let target = bcs::peel_u64(&mut bcs::new(c.value));
+                if (clock::timestamp_ms(clock) < target) {
+                    return false
+                };
+            };
             i = i + 1;
         };
-        total
+        true
     }
+
+    /// Execute a simple SUI transfer from the wallet's balance
+    public fun execute_transfer(
+        wallet: &mut SmartWallet,
+        action: &Action,
+        ctx: &mut tx_context::TxContext,
+    ) {
+        let amount = bcs::peel_u64(&mut bcs::new(action.data));
+        
+        // Check if wallet has sufficient balance
+        assert!(balance::value(&wallet.balance) >= amount, E_NOT_ENOUGH_APPROVALS);
+        
+        // Split the required amount from wallet balance
+        let transfer_balance = balance::split(&mut wallet.balance, amount);
+        let coin = coin::from_balance(transfer_balance, ctx);
+        
+        // Transfer to target address
+        transfer::public_transfer(coin, action.target);
+    }
+
 }

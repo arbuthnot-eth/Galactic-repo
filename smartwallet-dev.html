@@ -1,0 +1,1890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartWallet - Contract Interface</title>
+    <!-- Performance optimizations -->
+    <link rel="dns-prefetch" href="//fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Dev favicon: served from assets; injector may override in prod -->
+    <link rel="icon" type="image/png" href="assets/vw-favicon.png">
+    <script>
+        // Optimized favicon loading - defer until critical content loads
+        window.addEventListener('load',function(){
+            const link=document.querySelector('link[rel="icon"]');
+            if(link&&link.href){
+                window.getSmartWalletIconUrl=function(){return link.href};
+                const styleEl=document.createElement('style');
+                styleEl.id='sw-favicon-var';
+                styleEl.textContent=`:root{--sw-favicon-url:url("${link.href}")}`;
+                (document.body||document.head).appendChild(styleEl);
+            }
+        });
+    </script>
+    <!-- Critical CSS for immediate rendering -->
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a2332 0%, #2a3d52 100%);
+            color: #f4f1ef;
+            min-height: 100vh;
+        }
+        .container {
+            background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+            border: 1px solid rgba(69, 139, 189, 0.3);
+        }
+        h1 {
+            color: #f4f1ef;
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        /* Loading screen styles */
+        .app-loading {
+            text-align: center;
+            margin-top: 50px;
+            color: #c3d5e8;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(69, 139, 189, 0.3);
+            border-radius: 50%;
+            border-top-color: #458BBD;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Loading screen transitions - very fast fade */
+        #loading-screen {
+            transition: opacity 0.1s ease-out;
+        }
+        
+        /* Hide main content until loaded */
+        .main-content {
+            display: none;
+            opacity: 0;
+            transition: opacity 0.2s ease-out;
+        }
+        .main-content.loaded {
+            opacity: 1;
+        }
+
+        /* Sections fade in smoothly */
+        .section {
+            margin:20px 0;padding:20px;border:1px solid rgba(69,139,189,.4);border-radius:10px;background:linear-gradient(145deg,rgba(30,58,82,.6),rgba(45,74,102,.6));backdrop-filter:blur(10px);display:none;opacity:0;transition:opacity .5s ease-in;
+        }
+        .section.visible {
+            opacity: 1;
+        }
+        
+        /* Critical elements - optimized */
+        body,.container,h1{visibility:visible!important}
+        .section h3{margin-top:0;color:#c3d5e8;text-shadow:0 1px 2px rgba(0,0,0,.3)}
+        :root{--sw-favicon-url:initial}
+        .sw-icon{display:inline-block;width:1em;height:1em;background-image:var(--sw-favicon-url);background-size:contain;background-repeat:no-repeat;vertical-align:-.15em}
+        button{background:linear-gradient(145deg,#458BBD,#5A9BD4);color:#f4f1ef;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;margin:5px;font-size:14px;transition:all .3s ease;box-shadow:0 3px 8px rgba(0,0,0,.3);border:1px solid rgba(90,155,212,.3)}
+        button:hover{background:linear-gradient(145deg,#5A9BD4,#6BB6FF);transform:translateY(-1px);box-shadow:0 6px 12px rgba(0,0,0,.4)}
+        button:disabled{background:rgba(69,139,189,.4);cursor:not-allowed;transform:none;color:rgba(244,241,239,.5)}
+        .primary-btn{border-radius:12px;padding:15px 25px;font-size:16px;font-weight:600;box-shadow:0 6px 15px rgba(0,0,0,.25);border:1px solid rgba(69,139,189,.5);cursor:pointer;transition:all .3s ease;background:linear-gradient(145deg,#2d4a66,#458BBD)}
+        .primary-btn:hover{transform:translateY(-3px);box-shadow:0 10px 25px rgba(0,0,0,.35);background:linear-gradient(145deg,#458BBD,#5A9BD4)}
+        input[type="text"],input[type="number"],input[type="password"],textarea{padding:12px;border:1px solid rgba(69,139,189,.4);border-radius:8px;margin:5px;background:rgba(30,58,82,.3);color:#f4f1ef;backdrop-filter:blur(5px);font-size:14px}
+        input[type="text"]:focus,input[type="number"]:focus,input[type="password"]:focus,textarea:focus{outline:none;border-color:#5A9BD4;box-shadow:0 0 10px rgba(90,155,212,.3)}
+        input::placeholder,textarea::placeholder{color:rgba(244,241,239,.6)}
+        #output{background:#2c3e50;color:#ecf0f1;padding:15px;border-radius:5px;font-family:'Courier New',monospace;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;margin-top:20px}
+        .wallet-info{background:#e8f5e8;border-left:4px solid #27ae60;padding:10px;margin:10px 0;color:#2c3e50}
+        .error{background:#fdf2f2;border-left:4px solid #e74c3c;padding:10px;margin:10px 0;color:#c0392b}
+        .success{background:#d4edda;border-left:4px solid #28a745;padding:10px;margin:10px 0;color:#155724}
+        
+        /* Contract-specific styles */
+        .contract-card {
+            background: linear-gradient(145deg, rgba(45,74,102,.8), rgba(30,58,82,.8));
+            border: 1px solid rgba(69,139,189,.5);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            backdrop-filter: blur(10px);
+        }
+        .address-display {
+            font-family: 'Courier New', monospace;
+            background: rgba(0,0,0,.3);
+            padding: 8px;
+            border-radius: 5px;
+            word-break: break-all;
+            font-size: 12px;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #c3d5e8;
+            font-weight: 500;
+        }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .proposal-card {
+            background: rgba(69,139,189,.1);
+            border: 1px solid rgba(69,139,189,.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .approval-status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .approval-status.pending { background: #ffc107; color: #000; }
+        .approval-status.approved { background: #28a745; color: #fff; }
+        .approval-status.executed { background: #6c757d; color: #fff; }
+
+        /* Modal styles */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-overlay.visible { display: flex; }
+        .modal { width: min(600px, 92vw); max-height: 80vh; overflow: hidden; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(69,139,189,.4); background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(69,139,189,.3); }
+        .modal-title { margin: 0; font-size: 16px; color: #cfe4f7; font-weight: 600; }
+        .modal-close { background: transparent; border: none; color: #cfe4f7; font-size: 18px; cursor: pointer; padding: 6px 8px; }
+        .modal-body { padding: 12px 16px; max-height: calc(80vh - 56px); overflow-y: auto; }
+        .wallet-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 8px; padding: 12px; background: rgba(69,139,189,.08); margin: 10px 0; }
+        .wallet-card-name { font-weight: 600; color: #cfe4f7; }
+        .wallet-card-sub { font-size: 12px; color: #a0b3c5; }
+    </style>
+    
+    <!-- BUNDLE_PLACEHOLDER -->
+    <script>
+        // Minimal dev bootstrap: ensure global and try to load IIFE bundle when developing.
+        window.process={env:{NODE_ENV:'development'}};window.global=window.globalThis||window;
+        (function ensureDevSdk(){
+            if (window.SuiSDK) return; // Already injected (e.g., in production build)
+            try {
+                const s=document.createElement('script');
+                s.src='dist/sui-sdk-bundle.iife.js';
+                s.async=false;
+                s.onload=function(){console.log('Dev SDK bundle loaded');};
+                s.onerror=function(){console.warn('Dev SDK bundle not found. Run "npm run build" or serve dist/.');};
+                document.head.appendChild(s);
+            } catch(e){console.warn('Failed to attach dev SDK loader:', e);}
+        })();
+    </script>
+    
+    <script type="module">
+        // Contract Configuration
+        const CONTRACT_CONFIG = {
+            PACKAGE_ID: '0x4cf1c6f64b1b92a7c221175adb4cb9ebe3f5565b8d8e045419e667cad8eb9dcd',
+            MODULES: {
+                WALLET: 'wallet',
+                MEMBER_INDEX: 'member_index',
+                MULTISIG: 'multisig'
+            }
+        };
+
+        let currentWallet = null;
+        let currentNetwork = 'testnet'; // Your contracts are on testnet
+        let suiClient = null;
+        let memberRegistry = null; // Will store the shared Registry object ID
+        let connectedWalletStandard = null; // Will store connected wallet standard wallet
+
+        function waitForSDKs() {
+            return new Promise(resolve => {
+                if (window.SuiSDK) {
+                    resolve();
+                } else {
+                    setTimeout(() => waitForSDKs().then(resolve), 100);
+                }
+            });
+        }
+
+        function logOutput(message, isError = false) {
+            const output = document.getElementById('output');
+            const prefix = isError ? '[ERROR]' : '[INFO]';
+            const line = isError ? `\n${prefix} ${message}` : `${prefix} ${message}`;
+            output.textContent += `${line}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // Populate and show account dropdown for multi-account wallets
+        function setAccountsList(accounts) {
+            try {
+                window.currentWalletAccounts = Array.isArray(accounts) ? accounts : [];
+                const selWrap = document.getElementById('accountSelector');
+                const sel = document.getElementById('accountSelect');
+                if (!selWrap || !sel) return;
+                sel.innerHTML = '';
+                if (window.currentWalletAccounts.length > 0) {
+                    for (const acc of window.currentWalletAccounts) {
+                        const addr = acc && acc.address ? acc.address : String(acc || '');
+                        const opt = document.createElement('option');
+                        opt.value = addr;
+                        opt.textContent = addr;
+                        sel.appendChild(opt);
+                    }
+                    // Preselect current address if present
+                    const current = currentWallet && currentWallet.address;
+                    if (current) {
+                        sel.value = current;
+                    }
+                }
+                selWrap.style.display = window.currentWalletAccounts.length > 1 ? 'flex' : 'none';
+            } catch (e) {
+                // non-fatal
+            }
+        }
+
+        async function refreshWalletAccounts() {
+            try {
+                if (!connectedWalletStandard) {
+                    logOutput('No wallet connected', true);
+                    return;
+                }
+                const w = connectedWalletStandard;
+                let accounts = [];
+                if (w.features && w.features['standard:connect']) {
+                    const f = w.features['standard:connect'];
+                    if (typeof f.getAccounts === 'function') accounts = await f.getAccounts();
+                    else if (f.accounts) accounts = f.accounts;
+                } else if (w.features && w.features['sui:connect']) {
+                    const f = w.features['sui:connect'];
+                    if (typeof f.getAccounts === 'function') accounts = await f.getAccounts();
+                    else if (f.accounts) accounts = f.accounts;
+                } else if (w.accounts) {
+                    accounts = w.accounts;
+                }
+                setAccountsList(accounts);
+                logOutput(`Accounts refreshed (${accounts.length} found).`);
+            } catch (e) {
+                logOutput('Error refreshing accounts: ' + e.message, true);
+            }
+        }
+
+        async function useSelectedAccount() {
+            try {
+                const sel = document.getElementById('accountSelect');
+                if (!sel || !sel.value) {
+                    logOutput('No account selected', true);
+                    return;
+                }
+                const nextAddr = sel.value;
+                if (!connectedWalletStandard) {
+                    logOutput('No wallet connected', true);
+                    return;
+                }
+                // Update current account for signing and UI
+                currentWallet = { address: nextAddr, type: 'wallet_standard', wallet: connectedWalletStandard };
+                document.getElementById('currentAddress').textContent = nextAddr;
+                await getWalletBalance();
+                logOutput(`Using selected account: ${nextAddr}`);
+            } catch (e) {
+                logOutput('Error selecting account: ' + e.message, true);
+            }
+        }
+        // Derive member count from Move object fields; fall back to at least 1 (creator)
+        function getMemberCountFromWalletFields(fields) {
+            try {
+                const members = fields && (fields.members || (fields.value && fields.value.members));
+                const mf = members && (members.fields || (members.value && members.value.fields));
+                if (!mf) return 1;
+                if (typeof mf.size === 'number') {
+                    const n = Number(mf.size) || 0;
+                    return Math.max(1, n);
+                }
+                if (Array.isArray(mf.contents)) {
+                    return Math.max(1, mf.contents.length);
+                }
+            } catch (e) {}
+            return 1;
+        }
+
+        // Helper: try to extract a created objectId of a given type from a tx digest
+        async function extractCreatedObjectIdFromDigest(digest, objectType, maxRetries = 8, delayMs = 800) {
+            try {
+                for (let i = 0; i < maxRetries; i++) {
+                    if (!suiClient || typeof suiClient.getTransactionBlock !== 'function') {
+                        break;
+                    }
+                    try {
+                        const txb = await suiClient.getTransactionBlock({
+                            digest,
+                            options: { showEffects: true, showObjectChanges: true }
+                        });
+                        const oc = txb && txb.objectChanges ? txb.objectChanges : [];
+                        if (Array.isArray(oc) && oc.length) {
+                            const created = oc.find(c => c.type === 'created' && c.objectType === objectType);
+                            if (created && created.objectId) return created.objectId;
+                        }
+                    } catch (e) {
+                        // swallow and retry
+                    }
+                    await new Promise(r => setTimeout(r, delayMs));
+                }
+            } catch (_) {}
+            return null;
+        }
+
+        // Initialize Sui client
+        async function initializeSuiClient() {
+            if (!window.SuiSDK) throw new Error('SDK not loaded');
+            const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
+            suiClient = new SuiClient({ url: getFullnodeUrl(currentNetwork) });
+            logOutput(`Connected to Sui ${currentNetwork} network`);
+        }
+
+        // Wallet Management Functions
+        async function createNewWallet() {
+            try {
+                logOutput('Creating new traditional wallet...');
+                const { Ed25519Keypair } = window.SuiSDK.Sui;
+                const keypair = Ed25519Keypair.generate();
+                const address = keypair.toSuiAddress();
+                
+                currentWallet = { address, keypair, type: 'traditional' };
+                document.getElementById('currentAddress').textContent = address;
+                document.getElementById('walletInfo').style.display = 'block';
+                
+                logOutput('Traditional wallet created successfully!');
+                logOutput(`Address: ${address}`);
+                await getWalletBalance();
+            } catch (error) {
+                logOutput('Error creating wallet: ' + error.message, true);
+            }
+        }
+
+        async function restoreWallet() {
+            const privateKey = document.getElementById('privateKeyInput').value.trim();
+            if (!privateKey) {
+                logOutput('Please enter a private key', true);
+                return;
+            }
+
+            try {
+                logOutput('Restoring wallet from private key...');
+                const { Ed25519Keypair } = window.SuiSDK.Sui;
+                const keypair = Ed25519Keypair.fromSecretKey(privateKey);
+                const address = keypair.toSuiAddress();
+                
+                currentWallet = { address, keypair, type: 'traditional' };
+                document.getElementById('currentAddress').textContent = address;
+                document.getElementById('walletInfo').style.display = 'block';
+                
+                logOutput('Wallet restored successfully!');
+                logOutput(`Address: ${address}`);
+                await getWalletBalance();
+            } catch (error) {
+                logOutput('Error restoring wallet: ' + error.message, true);
+            }
+        }
+
+        async function getWalletBalance() {
+            if (!currentWallet) {
+                logOutput('No wallet selected', true);
+                return;
+            }
+            
+            try {
+                const balance = await suiClient.getBalance({ owner: currentWallet.address });
+                const suiBalance = Number(balance.totalBalance) / 1_000_000_000;
+                document.getElementById('currentBalance').textContent = `${suiBalance} SUI`;
+                logOutput(`Balance: ${suiBalance} SUI`);
+            } catch (error) {
+                logOutput('Error getting balance: ' + error.message, true);
+            }
+        }
+
+        // Wait for wallet extensions to load
+        function waitForWalletExtensions(timeout = 3000) {
+            return new Promise((resolve) => {
+                const startTime = Date.now();
+                const checkWallets = () => {
+                    const walletFound = window.sui || window.suiWallet || window.ethos || window.slush || 
+                                      (window.suiWallet && window.suiWallet.getWallets) ||
+                                      Object.keys(window).some(key => key.toLowerCase().includes('sui'));
+                    
+                    if (walletFound || Date.now() - startTime > timeout) {
+                        resolve(walletFound);
+                    } else {
+                        setTimeout(checkWallets, 100);
+                    }
+                };
+                checkWallets();
+            });
+        }
+
+        // Proper Sui Wallet Standard Connection using @mysten/wallet-standard
+        async function connectWalletStandard() {
+            try {
+                
+                // Wait for extensions to load
+                await waitForWalletExtensions();
+                
+                // Method 1: Use @mysten/wallet-standard from SuiSDK bundle
+                if (typeof window !== 'undefined' && window.SuiSDK) {
+                    // Check for @mysten/wallet-standard in the SuiSDK bundle
+                    if (window.SuiSDK.WalletStandard) {
+                        try {
+                            // Use proper Mysten wallet standard
+                            const { getWallets } = window.SuiSDK.WalletStandard;
+                            const walletsApi = getWallets();
+                            const allWallets = walletsApi.get();
+                            
+                            // Filter for Sui-compatible wallets only
+                            const suiWallets = allWallets.filter(wallet => {
+                                // Check for Sui-specific features
+                                const hasSuiConnect = wallet.features && (
+                                    wallet.features['sui:connect'] || 
+                                    wallet.features['sui:signAndExecuteTransaction'] ||
+                                    wallet.features['standard:connect']
+                                );
+                                
+                                // Check for Sui chains
+                                const supportsSui = wallet.chains && wallet.chains.some(chain => 
+                                    chain.includes('sui:') || chain === 'sui'
+                                );
+                                
+                                return hasSuiConnect || supportsSui;
+                            });
+                            
+                                        openWalletModal(suiWallets);
+                            return; // Stop here; user will choose a wallet
+                        } catch (sdkError) {
+                            logOutput('Mysten Wallet Standard detection failed: ' + sdkError.message, true);
+                        }
+                    }
+                    
+                    // Method 2: Direct window.sui detection (proper approach)
+                    if (window.sui) {
+                        logOutput('Found window.sui, attempting proper connection...');
+                        try {
+                            // Use the standard connection flow
+                            const hasConnectFeature = window.sui.features && window.sui.features['standard:connect'];
+                            const hasLegacyConnect = typeof window.sui.connect === 'function';
+                            
+                            if (hasConnectFeature) {
+                                logOutput('Using standard:connect feature...');
+                                await window.sui.features['standard:connect'].connect();
+                            } else if (hasLegacyConnect) {
+                                logOutput('Using legacy connect method...');
+                                await window.sui.connect();
+                            } else if (window.sui.requestPermissions) {
+                                logOutput('Using requestPermissions method...');
+                                await window.sui.requestPermissions();
+                            }
+                            
+                            // Get accounts
+                            let accounts = [];
+                            if (window.sui.accounts) {
+                                accounts = window.sui.accounts;
+                            } else if (window.sui.getAccounts) {
+                                accounts = await window.sui.getAccounts();
+                            } else if (window.sui.features && window.sui.features['standard:connect'] && window.sui.features['standard:connect'].accounts) {
+                                accounts = window.sui.features['standard:connect'].accounts;
+                            }
+                            
+                            if (accounts && accounts.length > 0) {
+                                const account = accounts[0];
+                                currentWallet = { 
+                                    address: account.address, 
+                                    type: 'wallet_standard',
+                                    wallet: window.sui
+                                };
+                                connectedWalletStandard = window.sui;
+                                
+                                document.getElementById('currentAddress').textContent = account.address;
+                                document.getElementById('walletInfo').style.display = 'block';
+                                document.getElementById('walletType').textContent = 'Sui Wallet Standard';
+                                
+                                logOutput('✅ Successfully connected via window.sui!');
+                                logOutput(`Address: ${account.address}`);
+                                await getWalletBalance();
+                                return;
+                            }
+                        } catch (suiError) {
+                            logOutput('window.sui connection failed: ' + suiError.message, true);
+                        }
+                    }
+                    
+                    // Method 3: Check for wallet-specific globals
+                    const knownWallets = ['suiWallet', 'ethos', 'slush', 'martian'];
+                    for (const walletName of knownWallets) {
+                        if (window[walletName]) {
+                            logOutput(`Found ${walletName}, attempting connection...`);
+                            try {
+                                const wallet = window[walletName];
+                                
+                                // Try standard connect
+                                if (wallet.features && wallet.features['standard:connect']) {
+                                    await wallet.features['standard:connect'].connect();
+                                    const accounts = wallet.features['standard:connect'].accounts;
+                                    if (accounts && accounts.length > 0) {
+                                        await handleSuccessfulConnection(accounts[0], wallet, walletName);
+                                        return;
+                                    }
+                                }
+                                
+                                // Try legacy methods
+                                if (wallet.connect) {
+                                    await wallet.connect();
+                                } else if (wallet.requestPermissions) {
+                                    await wallet.requestPermissions();
+                                }
+                                
+                                // Get accounts
+                                let accounts = [];
+                                if (wallet.getAccounts) {
+                                    accounts = await wallet.getAccounts();
+                                } else if (wallet.accounts) {
+                                    accounts = wallet.accounts;
+                                }
+                                
+                                if (accounts && accounts.length > 0) {
+                                    await handleSuccessfulConnection(accounts[0], wallet, walletName);
+                                    return;
+                                }
+                            } catch (walletError) {
+                                logOutput(`${walletName} connection failed: ${walletError.message}`, true);
+                            }
+                        }
+                    }
+                }
+                
+                logOutput('❌ No compatible Sui wallets found', true);
+                logOutput('Please ensure you have a Sui wallet extension installed (Slush, Sui Wallet, Ethos, etc.)', true);
+                logOutput('After installing, please refresh the page and try again.', true);
+
+            } catch (error) {
+                logOutput('Wallet connection error: ' + error.message, true);
+            }
+        }
+        
+        // Helper function for successful wallet connection
+        async function handleSuccessfulConnection(account, wallet, walletName) {
+            currentWallet = { 
+                address: account.address, 
+                type: 'wallet_standard',
+                wallet: wallet
+            };
+            connectedWalletStandard = wallet;
+            
+            document.getElementById('currentAddress').textContent = account.address;
+            document.getElementById('walletInfo').style.display = 'block';
+            document.getElementById('walletType').textContent = walletName + ' Wallet';
+            
+            logOutput(`✅ Connected to ${walletName}!`);
+            logOutput(`Address: ${account.address}`);
+            await getWalletBalance();
+        }
+
+        // Open modal with wallet selection (suiWallets are already filtered for Sui compatibility)
+        function openWalletModal(suiWallets) {
+            const overlay = document.getElementById('walletModal');
+            const list = document.getElementById('walletModalList');
+            if (!overlay || !list) return;
+            
+            // Start with the pre-filtered Sui wallets from @mysten/wallet-standard
+            var entries = [];
+            
+            // Add wallet standard entries (already filtered for Sui compatibility)
+            for (var i = 0; i < (suiWallets || []).length; i++) {
+                var wallet = suiWallets[i];
+                entries.push({ 
+                    type: 'standard', 
+                    wallet: wallet,
+                    name: wallet.name || `${wallet.id || 'Wallet'} ${i + 1}`
+                });
+            }
+            
+            // Add fallback entries for directly injected providers (if not already in standard list)
+            var fallbacks = [];
+            if (window.sui) {
+                // Check if this isn't already in the standard list
+                var alreadyHasSui = entries.some(e => e.name && e.name.toLowerCase().includes('sui'));
+                if (!alreadyHasSui) {
+                    fallbacks.push({ 
+                        type: 'windowSui', 
+                        name: 'Sui Wallet (window.sui)'
+                    });
+                }
+            }
+            if (window.phantom && window.phantom.sui) {
+                var alreadyHasPhantom = entries.some(e => e.name && e.name.toLowerCase().includes('phantom'));
+                if (!alreadyHasPhantom) {
+                    fallbacks.push({ 
+                        type: 'phantomSui', 
+                        name: 'Phantom (Sui)'
+                    });
+                }
+            }
+            
+            // Add fallbacks to entries
+            for (var fi = 0; fi < fallbacks.length; fi++) {
+                entries.push(fallbacks[fi]);
+            }
+
+            window.availableSuiWallets = entries;
+
+            var html = '';
+            if (!entries.length) {
+                html = '<p style="font-size: 13px; color: #a0b3c5;">No Sui wallets detected. Please install Slush, Sui Wallet, Ethos, or Phantom, then refresh this page.</p>';
+            } else {
+                for (var i = 0; i < entries.length; i++) {
+                    var e = entries[i];
+                    var name = e.name || (e.wallet && (e.wallet.name || e.wallet.id)) || `Wallet ${i + 1}`;
+                    
+                    // Show relevant chain info for Sui wallets
+                    var chainsStr = '';
+                    if (e.type === 'standard' && e.wallet && e.wallet.chains && e.wallet.chains.length) {
+                        var suiChains = e.wallet.chains.filter(c => 
+                            typeof c === 'string' && (c.includes('sui:') || c === 'sui')
+                        );
+                        chainsStr = suiChains.length ? suiChains.join(', ') : 'sui:mainnet, sui:testnet';
+                    } else {
+                        chainsStr = 'sui:' + (window.currentNetwork || 'testnet');
+                    }
+                    
+                    html += '\n<div class="wallet-card">\n' +
+                            '  <div style="flex:1">\n' +
+                            '    <div class="wallet-card-name">' + name + '</div>\n' +
+                            '    <div class="wallet-card-sub">Sui compatible • ' + chainsStr + '</div>\n' +
+                            '  </div>\n' +
+                            '  <div><button onclick="connectWalletByIndex(' + i + ')">Connect</button></div>\n' +
+                            '</div>';
+                }
+            }
+            list.innerHTML = html;
+            overlay.classList.add('visible');
+            document.body.style.overflow = 'hidden';
+            var closeBtn = document.getElementById('walletModalClose');
+            if (closeBtn) try { closeBtn.focus(); } catch(e) {}
+        }
+
+        function closeWalletModal() {
+            var overlay = document.getElementById('walletModal');
+            if (!overlay) return;
+            overlay.classList.remove('visible');
+            document.body.style.overflow = '';
+        }
+
+        window.connectWalletByIndex = async function(i) {
+            try {
+                const entry = (window.availableSuiWallets && window.availableSuiWallets.length) ? window.availableSuiWallets[i] : null;
+                if (!entry) throw new Error('Invalid wallet index');
+                closeWalletModal();
+                if (entry.type === 'standard' && entry.wallet) {
+                    await connectToWallet(entry.wallet);
+                } else if (entry.type === 'windowSui') {
+                    await connectViaWindowSui();
+                } else if (entry.type === 'phantomSui') {
+                    await connectViaPhantomSui();
+                } else {
+                    throw new Error('Unsupported wallet entry');
+                }
+            } catch (e) {
+                logOutput('Wallet selection error: ' + e.message, true);
+            }
+        };
+
+        async function connectToWallet(wallet) {
+            try {
+                logOutput(`Connecting to ${wallet.name || 'wallet'}...`);
+                
+                let connectFeature = null;
+                let accountsFeature = null;
+                
+                // Find the correct connection feature
+                if (wallet.features) {
+                    // Priority order for connection features
+                    if (wallet.features['standard:connect']) {
+                        connectFeature = wallet.features['standard:connect'];
+                        accountsFeature = wallet.features['standard:connect'];
+                    } else if (wallet.features['sui:connect']) {
+                        connectFeature = wallet.features['sui:connect'];
+                        accountsFeature = wallet.features['sui:connect'];
+                    } else if (wallet.features['sui:signAndExecuteTransaction']) {
+                        // Some wallets only have signing features, try to get accounts directly
+                        accountsFeature = wallet.features['sui:signAndExecuteTransaction'];
+                    }
+                }
+                
+                // Try to connect if we have a connect feature
+                if (connectFeature && typeof connectFeature.connect === 'function') {
+                    try { await connectFeature.disconnect?.(); } catch (_) {}
+                    await connectFeature.connect({ silent: false });
+                }
+                
+                // Try to get accounts
+                let accounts = [];
+                if (accountsFeature) {
+                    if (typeof accountsFeature.getAccounts === 'function') {
+                        accounts = await accountsFeature.getAccounts();
+                    } else if (accountsFeature.accounts) {
+                        accounts = accountsFeature.accounts;
+                    }
+                }
+                
+                // Fallback: try direct wallet properties
+                if (!accounts || accounts.length === 0) {
+                    if (wallet.accounts) {
+                        accounts = wallet.accounts;
+                    }
+                }
+                
+                if (accounts && accounts.length > 0) {
+                    const account = accounts[0];
+                    currentWallet = { 
+                        address: account.address, 
+                        type: 'wallet_standard',
+                        wallet: wallet
+                    };
+                    connectedWalletStandard = wallet;
+                    attachWalletEvents(wallet);
+                    setAccountsList(accounts);
+                    
+                    document.getElementById('currentAddress').textContent = account.address;
+                    document.getElementById('walletInfo').style.display = 'block';
+                    document.getElementById('walletType').textContent = `${wallet.name || 'Wallet Standard'}`;
+                    
+                    logOutput(`Connected to ${wallet.name || 'wallet'}!`);
+                    logOutput(`Address: ${account.address}`);
+                    await getWalletBalance();
+                } else {
+                    throw new Error('No accounts found in wallet');
+                }
+            } catch (error) {
+                throw new Error(`Failed to connect to wallet: ${error.message}`);
+            }
+        }
+
+        async function switchWalletAccount() {
+            try {
+                if (!connectedWalletStandard) {
+                    logOutput('No wallet connected', true);
+                    return;
+                }
+                const wallet = connectedWalletStandard;
+                let feature = null;
+                if (wallet.features && wallet.features['standard:connect']) feature = wallet.features['standard:connect'];
+                else if (wallet.features && wallet.features['sui:connect']) feature = wallet.features['sui:connect'];
+                if (feature && typeof feature.connect === 'function') {
+                    try { await feature.disconnect?.(); } catch (_) {}
+                    const res = await feature.connect({ silent: false });
+                    let accounts = [];
+                    if (res && res.accounts) accounts = res.accounts;
+                    else if (typeof feature.getAccounts === 'function') accounts = await feature.getAccounts();
+                    else if (wallet.accounts) accounts = wallet.accounts;
+                    if (accounts && accounts.length) {
+                        const account = accounts[0];
+                        currentWallet = { address: account.address, type: 'wallet_standard', wallet };
+                        connectedWalletStandard = wallet;
+                        document.getElementById('currentAddress').textContent = account.address;
+                        document.getElementById('walletInfo').style.display = 'block';
+                        await getWalletBalance();
+                        logOutput(`Switched to account: ${account.address}`);
+                    } else {
+                        logOutput('No accounts returned after switch', true);
+                    }
+                } else {
+                    logOutput('Wallet does not support programmatic account switching. Change the active account in the wallet UI, then click Refresh Balance.', true);
+                }
+            } catch (e) {
+                logOutput('Error switching account: ' + e.message, true);
+            }
+        }
+
+        async function connectViaWindowSui() {
+            if (!window.sui) throw new Error('window.sui not detected');
+            try {
+                const hasConnectFeature = window.sui.features && window.sui.features['standard:connect'];
+                const hasLegacyConnect = typeof window.sui.connect === 'function';
+                if (hasConnectFeature) {
+                    try { await window.sui.features['standard:connect'].disconnect?.(); } catch (_) {}
+                    await window.sui.features['standard:connect'].connect({ silent: false });
+                } else if (hasLegacyConnect) {
+                    await window.sui.connect();
+                } else if (window.sui.requestPermissions) {
+                    await window.sui.requestPermissions();
+                }
+                let accounts = [];
+                if (window.sui.accounts) accounts = window.sui.accounts;
+                else if (window.sui.getAccounts) accounts = await window.sui.getAccounts();
+                else if (window.sui.features && window.sui.features['standard:connect'] && window.sui.features['standard:connect'].accounts) {
+                    accounts = window.sui.features['standard:connect'].accounts;
+                }
+                if (!accounts || !accounts.length) throw new Error('No accounts found in window.sui');
+                const account = accounts[0];
+                currentWallet = { address: account.address, type: 'wallet_standard', wallet: window.sui };
+                connectedWalletStandard = window.sui;
+                setAccountsList(accounts);
+                document.getElementById('currentAddress').textContent = account.address;
+                document.getElementById('walletInfo').style.display = 'block';
+                document.getElementById('walletType').textContent = 'Sui Wallet (window.sui)';
+                logOutput('✅ Connected via window.sui');
+                await getWalletBalance();
+            } catch (e) {
+                throw new Error('window.sui connection failed: ' + e.message);
+            }
+        }
+
+        async function connectViaPhantomSui() {
+            if (!(window.phantom && window.phantom.sui)) throw new Error('Phantom Sui provider not detected');
+            const phantomSui = window.phantom.sui;
+            try {
+                logOutput('Attempting to connect to Phantom Sui...');
+                
+                // For Phantom, we need to request connection first
+                let connectResult;
+                if (typeof phantomSui.connect === 'function') {
+                    try { await phantomSui.disconnect?.(); } catch (_) {}
+                    connectResult = await phantomSui.connect();
+                    logOutput('Phantom connect() called successfully');
+                } else {
+                    logOutput('No connect() method found, trying direct account access');
+                }
+                
+                // Try multiple ways to get accounts from Phantom Sui
+                let accounts = [];
+                
+                // Method 1: Check connect result
+                if (connectResult && connectResult.accounts) {
+                    accounts = connectResult.accounts;
+                    logOutput('Got accounts from connect result');
+                }
+                // Method 2: Check accounts property
+                else if (phantomSui.accounts && phantomSui.accounts.length) {
+                    accounts = phantomSui.accounts;
+                    logOutput('Got accounts from phantomSui.accounts');
+                }
+                // Method 3: Try getAccounts method
+                else if (typeof phantomSui.getAccounts === 'function') {
+                    accounts = await phantomSui.getAccounts();
+                    logOutput('Got accounts from getAccounts()');
+                }
+                // Method 4: Check for publicKey (legacy)
+                else if (phantomSui.publicKey) {
+                    if (typeof phantomSui.publicKey.toSuiAddress === 'function') {
+                        accounts = [{ address: phantomSui.publicKey.toSuiAddress() }];
+                        logOutput('Got address from publicKey.toSuiAddress()');
+                    } else if (typeof phantomSui.publicKey.toBase58 === 'function') {
+                        accounts = [{ address: phantomSui.publicKey.toBase58() }];
+                        logOutput('Got address from publicKey.toBase58()');
+                    }
+                }
+                
+                logOutput(`Phantom Sui returned ${accounts ? accounts.length : 0} accounts`);
+                
+                if (!accounts || !accounts.length) {
+                    throw new Error('No accounts returned by Phantom Sui. Please ensure Phantom is unlocked and has a Sui account configured.');
+                }
+                
+                const account = accounts[0];
+                logOutput(`Using account: ${account.address}`);
+                
+                currentWallet = { address: account.address, type: 'wallet_standard', wallet: phantomSui };
+                connectedWalletStandard = phantomSui;
+                setAccountsList(accounts);
+                
+                document.getElementById('currentAddress').textContent = account.address;
+                document.getElementById('walletInfo').style.display = 'block';
+                document.getElementById('walletType').textContent = 'Phantom (Sui)';
+                
+                logOutput('✅ Connected via Phantom (Sui)');
+                logOutput(`Address: ${account.address}`);
+                await getWalletBalance();
+                
+            } catch (e) {
+                logOutput(`Phantom Sui connection error: ${e.message}`, true);
+                throw new Error('Phantom Sui connection failed: ' + e.message);
+            }
+        }
+
+        async function disconnectWallet() {
+            try {
+                if (connectedWalletStandard && connectedWalletStandard.features) {
+                    if (
+                        connectedWalletStandard.features['standard:connect'] &&
+                        typeof connectedWalletStandard.features['standard:connect'].disconnect === 'function'
+                    ) {
+                        await connectedWalletStandard.features['standard:connect'].disconnect();
+                    } else if (
+                        connectedWalletStandard.features['sui:connect'] &&
+                        typeof connectedWalletStandard.features['sui:connect'].disconnect === 'function'
+                    ) {
+                        await connectedWalletStandard.features['sui:connect'].disconnect();
+                    } else if (typeof connectedWalletStandard.disconnect === 'function') {
+                        await connectedWalletStandard.disconnect();
+                    }
+                }
+                
+                currentWallet = null;
+                connectedWalletStandard = null;
+                
+                document.getElementById('walletInfo').style.display = 'none';
+                document.getElementById('currentAddress').textContent = '';
+                document.getElementById('currentBalance').textContent = 'Loading...';
+                
+                logOutput('Wallet disconnected');
+            } catch (error) {
+                logOutput('Error disconnecting wallet: ' + error.message, true);
+            }
+        }
+
+        function attachWalletEvents(wallet) {
+            try {
+                if (wallet && wallet.features && wallet.features['standard:events'] && typeof wallet.features['standard:events'].on === 'function') {
+                    wallet.features['standard:events'].on('change', async (e) => {
+                        try {
+                            if (e && e.accounts && e.accounts.length) {
+                                const account = e.accounts[0];
+                                setAccountsList(e.accounts);
+                                currentWallet = { address: account.address, type: 'wallet_standard', wallet };
+                                connectedWalletStandard = wallet;
+                                document.getElementById('currentAddress').textContent = account.address;
+                                document.getElementById('walletInfo').style.display = 'block';
+                                await getWalletBalance();
+                                logOutput(`Active account changed to: ${account.address}`);
+                            }
+                        } catch (err) {
+                            logOutput('Error handling account change: ' + err.message, true);
+                        }
+                    });
+                }
+            } catch (_) {}
+        }
+
+        // Helper function to sign and execute transactions using proper Wallet Standard
+        async function signAndExecuteTransaction(tx) {
+            if (!currentWallet) {
+                throw new Error('No wallet connected');
+            }
+
+            if (currentWallet.type === 'wallet_standard') {
+                const wallet = connectedWalletStandard;
+                
+                // Build transaction data for wallet standard
+                const transactionData = {
+                    transaction: tx,
+                    account: { address: currentWallet.address },
+                    chain: `sui:${currentNetwork}`,
+                    // Ask wallets to return rich response so we can read created object IDs
+                    options: { showEffects: true, showObjectChanges: true }
+                };
+                
+                // Try current Wallet Standard methods (preferred)
+                if (wallet.features && wallet.features['sui:signAndExecuteTransaction']) {
+                    logOutput('Using sui:signAndExecuteTransaction feature...');
+                    return await wallet.features['sui:signAndExecuteTransaction'].signAndExecuteTransaction(transactionData);
+                }
+                
+                // Try legacy methods (for backward compatibility)
+                if (wallet.features && wallet.features['sui:signAndExecuteTransactionBlock']) {
+                    logOutput('Using sui:signAndExecuteTransactionBlock feature...');
+                    return await wallet.features['sui:signAndExecuteTransactionBlock'].signAndExecuteTransactionBlock({
+                        transactionBlock: tx,
+                        account: { address: currentWallet.address },
+                        chain: `sui:${currentNetwork}`,
+                        options: { showEffects: true, showObjectChanges: true }
+                    });
+                }
+                
+                // Try direct method access
+                if (typeof wallet.signAndExecuteTransactionBlock === 'function') {
+                    logOutput('Using direct signAndExecuteTransactionBlock method...');
+                    return await wallet.signAndExecuteTransactionBlock({
+                        transactionBlock: tx,
+                        account: { address: currentWallet.address },
+                        chain: `sui:${currentNetwork}`,
+                        options: { showEffects: true, showObjectChanges: true }
+                    });
+                }
+                
+                if (typeof wallet.signAndExecuteTransaction === 'function') {
+                    logOutput('Using direct signAndExecuteTransaction method...');
+                    return await wallet.signAndExecuteTransaction(transactionData);
+                }
+                
+                throw new Error('Wallet does not support transaction signing. Please ensure your wallet supports the Sui Wallet Standard.');
+                
+            } else {
+                // Use traditional keypair signing for non-wallet-standard connections
+                return await suiClient.signAndExecuteTransaction({
+                    signer: currentWallet.keypair,
+                    transaction: tx
+                });
+            }
+        }
+
+        // Smart Contract Functions
+
+        // Initialize Member Registry (call once after deployment)
+        async function initRegistry() {
+            if (!currentWallet) {
+                logOutput('No wallet connected', true);
+                return;
+            }
+
+            try {
+                logOutput('Initializing member registry...');
+                const { Transaction } = window.SuiSDK.Sui;
+                const tx = new Transaction();
+
+                tx.moveCall({
+                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.MEMBER_INDEX}::init_registry`,
+                    arguments: []
+                });
+
+                const result = await signAndExecuteTransaction(tx);
+
+                logOutput(`Registry initialized! Transaction: ${result.digest}`);
+
+                // Persist digest for fallback discovery
+                try { localStorage.setItem('lastRegistryInitDigest', result.digest); } catch (_) {}
+
+                // Try to extract the created shared Registry object ID directly from the response
+                const REGISTRY_TYPE = `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.MEMBER_INDEX}::Registry`;
+                let createdId = null;
+
+                try {
+                    const oc = result && result.objectChanges ? result.objectChanges : [];
+                    if (Array.isArray(oc) && oc.length) {
+                        const created = oc.find(c => c.type === 'created' && c.objectType === REGISTRY_TYPE);
+                        if (created && created.objectId) createdId = created.objectId;
+                    }
+                } catch (_) {}
+
+                // If not present, wait for tx to finalize then fetch full details
+                if (!createdId) {
+                    const fetched = await extractCreatedObjectIdFromDigest(result.digest, REGISTRY_TYPE);
+                    if (fetched) createdId = fetched;
+                    else logOutput('Note: could not fetch created Registry ID from digest yet', true);
+                }
+
+                if (createdId) {
+                    memberRegistry = createdId;
+                    try { localStorage.setItem('memberRegistryId', memberRegistry); } catch (_) {}
+                    document.getElementById('registryId').textContent = memberRegistry;
+                    logOutput(`Found registry: ${memberRegistry}`);
+                } else {
+                    // Fallback: search via indexer for any Registry objects (shared, global)
+                    await findRegistry();
+                }
+            } catch (error) {
+                logOutput('Error initializing registry: ' + error.message, true);
+            }
+        }
+
+        // Find the shared Registry object
+        async function findRegistry() {
+            try {
+                logOutput('Looking for member registry...');
+
+                // First, check local storage cache
+                try {
+                    const cached = localStorage.getItem('memberRegistryId');
+                    if (cached) {
+                        memberRegistry = cached;
+                        document.getElementById('registryId').textContent = memberRegistry;
+                        logOutput(`Found registry (cached): ${memberRegistry}`);
+                        return;
+                    }
+                } catch (_) {}
+
+                // Fallback: if we have last init digest, try to fetch the created object id
+                try {
+                    const lastDigest = localStorage.getItem('lastRegistryInitDigest');
+                    if (lastDigest) {
+                        const REGISTRY_TYPE = `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.MEMBER_INDEX}::Registry`;
+                        const createdId = await extractCreatedObjectIdFromDigest(lastDigest, REGISTRY_TYPE);
+                        if (createdId) {
+                            memberRegistry = createdId;
+                            try { localStorage.setItem('memberRegistryId', memberRegistry); } catch (_) {}
+                            document.getElementById('registryId').textContent = memberRegistry;
+                            logOutput(`Found registry: ${memberRegistry}`);
+                            return;
+                        }
+                    }
+                } catch (_) {}
+
+                // As a final fallback, inform user
+                logOutput('No registry found - you may need to initialize one first', true);
+            } catch (error) {
+                logOutput('Error finding registry: ' + error.message, true);
+            }
+        }
+
+        // Create a new Smart Wallet
+        async function createSmartWallet() {
+            if (!currentWallet) {
+                logOutput('No wallet connected', true);
+                return;
+            }
+
+            const walletName = document.getElementById('walletName').value.trim();
+            const recoveryKey = document.getElementById('recoveryKey').value.trim() || currentWallet.address;
+
+            if (!walletName) {
+                logOutput('Please enter a wallet name', true);
+                return;
+            }
+
+            try {
+                logOutput('Creating smart wallet...');
+                const { Transaction, Clock } = window.SuiSDK.Sui;
+                const tx = new Transaction();
+
+                // Get the shared Clock object (0x6)
+                const clockId = '0x6';
+
+                const smartWallet = tx.moveCall({
+                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::create_wallet`,
+                    arguments: [
+                        tx.pure.address(currentWallet.address),
+                        tx.pure.address(recoveryKey),
+                        tx.pure.vector('u8', Array.from(new TextEncoder().encode(walletName))),
+                        tx.object(clockId)
+                    ]
+                });
+
+                // Transfer the created wallet to the sender
+                tx.transferObjects([smartWallet], tx.pure.address(currentWallet.address));
+
+                const result = await signAndExecuteTransaction(tx);
+
+                logOutput(`Smart wallet created! Transaction: ${result.digest}`);
+                await findMyWallets();
+            } catch (error) {
+                logOutput('Error creating smart wallet: ' + error.message, true);
+            }
+        }
+
+        // Find wallets owned by current user
+        async function findMyWallets() {
+            if (!currentWallet) {
+                logOutput('No wallet connected', true);
+                return;
+            }
+
+            try {
+                logOutput('Finding your smart wallets...');
+                const objects = await suiClient.getOwnedObjects({
+                    owner: currentWallet.address,
+                    filter: {
+                        StructType: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::SmartWallet`
+                    },
+                    options: { showContent: true, showDisplay: true }
+                });
+
+                const walletsList = document.getElementById('walletsList');
+                walletsList.innerHTML = '';
+
+                if (objects.data.length === 0) {
+                    walletsList.innerHTML = '<p>No smart wallets found</p>';
+                    logOutput('No smart wallets found');
+                    return;
+                }
+
+                objects.data.forEach(obj => {
+                    const walletId = obj.data.objectId;
+                    const walletData = obj.data.content.fields;
+                    const memberCount = getMemberCountFromWalletFields(walletData);
+                    
+                    const card = document.createElement('div');
+                    card.className = 'contract-card';
+                    card.innerHTML = `
+                        <h4>Smart Wallet</h4>
+                        <div class="address-display">ID: ${walletId}</div>
+                        <p><strong>Name:</strong> ${walletData.name ? new TextDecoder().decode(new Uint8Array(walletData.name)) : 'Unknown'}</p>
+                        <p><strong>Version:</strong> ${walletData.version}</p>
+                        <p><strong>Balance:</strong> ${Number(walletData.balance || 0) / 1_000_000_000} SUI</p>
+                        <p><strong>Members:</strong> ${memberCount}</p>
+                        <button onclick="selectSmartWallet('${walletId}')">Select Wallet</button>
+                        <button onclick="viewWalletDetails('${walletId}')">View Details</button>
+                    `;
+                    walletsList.appendChild(card);
+                });
+
+                logOutput(`Found ${objects.data.length} smart wallet(s)`);
+            } catch (error) {
+                logOutput('Error finding wallets: ' + error.message, true);
+            }
+        }
+
+        // Select a smart wallet for operations
+        window.selectSmartWallet = function(walletId) {
+            document.getElementById('selectedWalletId').textContent = walletId;
+            document.getElementById('smartWalletOperations').style.display = 'block';
+            logOutput(`Selected smart wallet: ${walletId}`);
+        }
+
+        // View detailed wallet information
+        window.viewWalletDetails = async function(walletId) {
+            try {
+                logOutput(`Getting details for wallet ${walletId}...`);
+                const walletObj = await suiClient.getObject({
+                    id: walletId,
+                    options: { showContent: true }
+                });
+
+                const details = walletObj.data.content.fields;
+                const memberCount = getMemberCountFromWalletFields(details);
+                logOutput(`Wallet Name: ${details.name ? new TextDecoder().decode(new Uint8Array(details.name)) : 'Unknown'}`);
+                logOutput(`Version: ${details.version}`);
+                logOutput(`Created: ${new Date(Number(details.created_at)).toLocaleString()}`);
+                logOutput(`Recovery Key: ${details.recovery_key}`);
+                logOutput(`Members: ${memberCount}`);
+                logOutput(`Proposals: ${((details.proposals && details.proposals.fields && details.proposals.fields.size) || 0)}`);
+                logOutput(`Balance: ${Number(details.balance || 0) / 1_000_000_000} SUI`);
+            } catch (error) {
+                logOutput('Error getting wallet details: ' + error.message, true);
+            }
+        }
+
+        // Add a new member to the smart wallet
+        async function addMember() {
+            const walletId = document.getElementById('selectedWalletId').textContent;
+            const newMember = document.getElementById('newMemberAddress').value.trim();
+            const roleName = document.getElementById('memberRole').value.trim() || 'member';
+            const weight = parseInt(document.getElementById('memberWeight').value) || 1;
+            const permissions = parseInt(document.getElementById('memberPermissions').value) || 7;
+
+            if (!walletId || !newMember) {
+                logOutput('Please select a wallet and enter member address', true);
+                return;
+            }
+
+            if (newMember.toLowerCase() === currentWallet.address.toLowerCase()) {
+                logOutput('This address is already a member (creator). Use a different address.', true);
+                return;
+            }
+
+            if (!memberRegistry) {
+                logOutput('No registry found - please initialize registry first', true);
+                return;
+            }
+
+            try {
+                logOutput(`Adding member ${newMember} to wallet ${walletId}...`);
+                const { Transaction } = window.SuiSDK.Sui;
+                const tx = new Transaction();
+
+                tx.moveCall({
+                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::add_member`,
+                    arguments: [
+                        tx.object(walletId),
+                        tx.object(memberRegistry),
+                        tx.pure.address(newMember),
+                        tx.pure.vector('u8', Array.from(new TextEncoder().encode(roleName))),
+                        tx.pure.u64(weight),
+                        tx.pure.u64(permissions),
+                        tx.pure.address(currentWallet.address)
+                    ]
+                });
+
+                const result = await signAndExecuteTransaction(tx);
+
+                logOutput(`Member added! Transaction: ${result.digest}`);
+                
+                // Clear form
+                document.getElementById('newMemberAddress').value = '';
+                document.getElementById('memberRole').value = '';
+                document.getElementById('memberWeight').value = '';
+                document.getElementById('memberPermissions').value = '';
+            } catch (error) {
+                logOutput('Error adding member: ' + error.message, true);
+            }
+        }
+
+        // Create a new proposal
+        async function createProposal() {
+            const walletId = document.getElementById('selectedWalletId').textContent;
+            const proposalId = parseInt(document.getElementById('proposalId').value) || Date.now();
+            const actionKind = document.getElementById('actionKind').value.trim() || 'transfer';
+            const targetAddress = document.getElementById('targetAddress').value.trim();
+            const actionData = document.getElementById('actionData').value.trim();
+            const threshold = parseInt(document.getElementById('proposalThreshold').value) || 1;
+            const deadline = parseInt(document.getElementById('proposalDeadline').value) || 0;
+
+            if (!walletId || !targetAddress || !actionData) {
+                logOutput('Please fill in all required proposal fields', true);
+                return;
+            }
+
+            try {
+                logOutput(`Creating proposal ${proposalId} for wallet ${walletId}...`);
+                const { Transaction } = window.SuiSDK.Sui;
+                const tx = new Transaction();
+
+                // Convert action data to bytes (for transfer, it should be the amount in MIST)
+                let dataBytes;
+                if (actionKind === 'transfer') {
+                    const amount = parseFloat(actionData) * 1_000_000_000; // Convert SUI to MIST
+                    dataBytes = new TextEncoder().encode(amount.toString());
+                } else {
+                    dataBytes = new TextEncoder().encode(actionData);
+                }
+
+                const clockId = '0x6';
+
+                tx.moveCall({
+                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::propose_action`,
+                    arguments: [
+                        tx.object(walletId),
+                        tx.pure.u64(proposalId),
+                        tx.pure.vector('u8', Array.from(new TextEncoder().encode(actionKind))),
+                        tx.pure.address(targetAddress),
+                        tx.pure.vector('u8', Array.from(dataBytes)),
+                        tx.pure.u64(threshold),
+                        tx.pure.u64(deadline),
+                        // Empty vector<Condition>: explicit element type using vector helper
+                        tx.pure.vector(`${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::Condition`, []),
+                        tx.object(clockId)
+                    ]
+                });
+
+                const result = await signAndExecuteTransaction(tx);
+
+                logOutput(`Proposal created! Transaction: ${result.digest}`);
+                
+                // Clear form
+                document.getElementById('proposalId').value = '';
+                document.getElementById('actionKind').value = '';
+                document.getElementById('targetAddress').value = '';
+                document.getElementById('actionData').value = '';
+                document.getElementById('proposalThreshold').value = '';
+                document.getElementById('proposalDeadline').value = '';
+            } catch (error) {
+                logOutput('Error creating proposal: ' + error.message, true);
+            }
+        }
+
+        // Approve a proposal
+        async function approveProposal() {
+            const walletId = document.getElementById('selectedWalletId').textContent;
+            const proposalId = parseInt(document.getElementById('approveProposalId').value);
+
+            if (!walletId || !proposalId) {
+                logOutput('Please enter proposal ID', true);
+                return;
+            }
+
+            try {
+                logOutput(`Approving proposal ${proposalId} for wallet ${walletId}...`);
+                const { Transaction } = window.SuiSDK.Sui;
+                const tx = new Transaction();
+
+                const clockId = '0x6';
+
+                tx.moveCall({
+                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::approve_proposal`,
+                    arguments: [
+                        tx.object(walletId),
+                        tx.pure(proposalId),
+                        tx.object(clockId)
+                    ]
+                });
+
+                const result = await signAndExecuteTransaction(tx);
+
+                logOutput(`Proposal approved! Transaction: ${result.digest}`);
+                document.getElementById('approveProposalId').value = '';
+            } catch (error) {
+                logOutput('Error approving proposal: ' + error.message, true);
+            }
+        }
+
+        // Deposit SUI into smart wallet
+        async function depositToWallet() {
+            const walletId = document.getElementById('selectedWalletId').textContent;
+            const amount = parseFloat(document.getElementById('depositAmount').value);
+
+            if (!walletId || !amount || amount <= 0) {
+                logOutput('Please enter valid deposit amount', true);
+                return;
+            }
+
+            try {
+                logOutput(`Depositing ${amount} SUI to wallet ${walletId}...`);
+                const { Transaction } = window.SuiSDK.Sui;
+                const tx = new Transaction();
+
+                const amountInMist = Math.floor(amount * 1_000_000_000);
+                const coin = tx.splitCoins(tx.gas, [tx.pure(amountInMist)]);
+
+                tx.moveCall({
+                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::deposit`,
+                    arguments: [
+                        tx.object(walletId),
+                        coin
+                    ]
+                });
+
+                const result = await signAndExecuteTransaction(tx);
+
+                logOutput(`Deposit successful! Transaction: ${result.digest}`);
+                document.getElementById('depositAmount').value = '';
+                await findMyWallets(); // Refresh wallet list
+            } catch (error) {
+                logOutput('Error depositing: ' + error.message, true);
+            }
+        }
+
+        // Network change handler
+        function changeNetwork() {
+            const networkSelect = document.getElementById('networkSelect');
+            currentNetwork = networkSelect.value;
+            logOutput(`Network changed to: ${currentNetwork}`);
+            
+            // Reinitialize client
+            initializeSuiClient().then(() => {
+                if (currentWallet) {
+                    getWalletBalance();
+                }
+            });
+        }
+
+        function clearOutput() {
+            document.getElementById('output').textContent = '';
+        }
+
+        // Make functions available globally
+        // Simple debug function to check for wallet extensions
+        function debugWalletDetection() {
+            logOutput('=== Wallet Detection Debug ===');
+            
+            // Check key wallet properties
+            const allProps = Object.keys(window);
+            logOutput(`Total window properties: ${allProps.length}`);
+            
+            // More comprehensive wallet property search
+            const walletRelated = allProps.filter(key => {
+                const k = key.toLowerCase();
+                return k.includes('sui') || k.includes('wallet') || k.includes('ethos') || 
+                       k.includes('slush') || k.includes('martian') || k.includes('okx') ||
+                       k.includes('coin98') || k.includes('bitkeep') || k.includes('onekey') ||
+                       k.includes('phantom') || k.includes('solflare') || k.includes('exodus') ||
+                       k.includes('keplr') || k.includes('metamask') || k.includes('trustwallet') ||
+                       k.includes('binance') || k.includes('coinbase');
+            });
+            
+            logOutput('All wallet-related properties found: ' + (walletRelated.length ? walletRelated.join(', ') : 'none'));
+            
+            // Check specific common wallet injection points
+            const walletsToCheck = [
+                'sui', 'suiWallet', 'slush', 'ethos', 'martian', 'spacecy',
+                'ethereum', 'solana', 'keplr', 'cosmos', 'phantom', 'okxwallet'
+            ];
+            
+            walletsToCheck.forEach(walletName => {
+                const wallet = window[walletName];
+                if (wallet) {
+                    logOutput(`✅ ${walletName} found!`);
+                    if (typeof wallet === 'object') {
+                        const methods = Object.getOwnPropertyNames(wallet);
+                        const props = Object.keys(wallet);
+                        logOutput(`  Methods: ${methods.slice(0, 10).join(', ')}${methods.length > 10 ? '...' : ''}`);
+                        logOutput(`  Properties: ${props.slice(0, 10).join(', ')}${props.length > 10 ? '...' : ''}`);
+                        
+                        // Check for Sui-specific properties
+                        if (wallet.connect) logOutput(`  Has connect method: true`);
+                        if (wallet.getAccounts) logOutput(`  Has getAccounts method: true`);
+                        if (wallet.signAndExecuteTransaction) logOutput(`  Has signAndExecuteTransaction method: true`);
+                        if (wallet.features) {
+                            logOutput(`  Has features object: true`);
+                            logOutput(`  Features: ${Object.keys(wallet.features).join(', ')}`);
+                        }
+                    }
+                } else {
+                    logOutput(`❌ ${walletName} not found`);
+                }
+            });
+            
+            // Check for modern wallet standard implementations
+            if (window.navigator) {
+                // Check for wallet standard
+                if (window.navigator.wallets) {
+                    logOutput('✅ navigator.wallets found!');
+                    try {
+                        if (typeof window.navigator.wallets.getWallets === 'function') {
+                            const wallets = window.navigator.wallets.getWallets();
+                            logOutput(`navigator.wallets count: ${wallets.length}`);
+                            wallets.forEach((wallet, index) => {
+                            logOutput(`Wallet ${index}: ${wallet.name || 'Unknown'} - chains: ${((wallet.chains && wallet.chains.join) ? wallet.chains.join(', ') : 'Unknown')}`);
+                            });
+                        }
+                    } catch (e) {
+                        logOutput('Error accessing navigator.wallets: ' + e.message, true);
+                    }
+                } else {
+                    logOutput('❌ navigator.wallets not found');
+                }
+                
+                // Check for other navigator wallet APIs
+                if (window.navigator.credentials) {
+                    logOutput('✅ navigator.credentials found (WebAuthn support)');
+                }
+            }
+            
+            // Check browser extension APIs
+            if (typeof chrome !== 'undefined' && chrome.runtime) {
+                logOutput('✅ Chrome extension API detected');
+            } else if (typeof browser !== 'undefined' && browser.runtime) {
+                logOutput('✅ Firefox extension API detected');
+            }
+            
+            // Check for injected provider detection events
+            logOutput('Checking for wallet injection events...');
+            const eventTypes = [
+                'wallet-standard:app-ready',
+                'sui:wallet-ready', 
+                'ethereum#initialized',
+                'coinbase#initialized'
+            ];
+            
+            eventTypes.forEach(eventType => {
+                window.addEventListener(eventType, (event) => {
+                    logOutput(`🎉 Event detected: ${eventType}`);
+                }, { once: true });
+            });
+            
+            // Dispatch events to trigger wallet detection
+            setTimeout(() => {
+                window.dispatchEvent(new Event('wallet-standard:app-ready'));
+            }, 100);
+            
+            logOutput('=== End Debug ===');
+        }
+        
+        // Manual connection function for direct wallet access
+        async function manualConnect(address) {
+            if (!address) {
+                logOutput('Usage: manualConnect("0x1234...your wallet address")', true);
+                return;
+            }
+            
+            try {
+                currentWallet = { 
+                    address: address, 
+                    type: 'manual',
+                    wallet: null
+                };
+                
+                document.getElementById('currentAddress').textContent = address;
+                document.getElementById('walletInfo').style.display = 'block';
+                document.getElementById('walletType').textContent = 'Manual Connection (View Only)';
+                
+                logOutput(`Manually connected to: ${address}`);
+                logOutput('Note: This is view-only. You cannot sign transactions without a proper wallet connection.');
+                await getWalletBalance();
+                
+            } catch (error) {
+                logOutput('Error with manual connection: ' + error.message, true);
+            }
+        }
+
+        window.createNewWallet = createNewWallet;
+        window.restoreWallet = restoreWallet;
+        window.getWalletBalance = getWalletBalance;
+        window.changeNetwork = changeNetwork;
+        window.clearOutput = clearOutput;
+        window.connectWalletStandard = connectWalletStandard;
+        window.disconnectWallet = disconnectWallet;
+        window.refreshWalletAccounts = refreshWalletAccounts;
+        window.useSelectedAccount = useSelectedAccount;
+        window.debugWalletDetection = debugWalletDetection;
+        window.manualConnect = manualConnect;
+        window.initRegistry = initRegistry;
+        window.findRegistry = findRegistry;
+        window.createSmartWallet = createSmartWallet;
+        window.findMyWallets = findMyWallets;
+        window.addMember = addMember;
+        window.createProposal = createProposal;
+        window.approveProposal = approveProposal;
+        window.depositToWallet = depositToWallet;
+        window.switchWalletAccount = switchWalletAccount;
+
+        // App initialization
+        function initializeApp() {
+            const loadingScreen = document.getElementById('loading-screen');
+            const mainContent = document.getElementById('main-content');
+            
+            if (loadingScreen) loadingScreen.style.display = 'block';
+            if (mainContent) mainContent.style.display = 'none';
+            
+            waitForSDKs().then(async () => {
+                await initializeSuiClient();
+                
+                // Wallet detection is now working - no need for automatic debug
+                
+                setTimeout(() => {
+                    if (loadingScreen) {
+                        loadingScreen.style.opacity = '0';
+                        setTimeout(() => {
+                            loadingScreen.style.display = 'none';
+                            if (mainContent) {
+                                mainContent.style.display = 'block';
+                                setTimeout(() => {
+                                    const allSections = document.querySelectorAll('.section');
+                                    allSections.forEach(section => {
+                                        section.style.display = 'block';
+                                        section.classList.add('visible');
+                                    });
+                                    mainContent.classList.add('loaded');
+                                }, 300);
+                            }
+                        }, 100);
+                    }
+                }, 200);
+
+                // Modal close handlers
+                try {
+                    const overlay = document.getElementById('walletModal');
+                    if (overlay) {
+                        overlay.addEventListener('click', function(ev){ if (ev.target === overlay) closeWalletModal(); });
+                    }
+                    document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') closeWalletModal(); });
+                } catch (e) {}
+            });
+        }
+
+        // Initialize when ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+    </script>
+</head>
+<body>
+    <!-- Loading screen -->
+    <div class="container" id="loading-screen">
+        <h1><span class="sw-icon" aria-hidden="true"></span> SmartWallet</h1>
+        <div class="app-loading">
+            <p>Loading smart contract interface...</p>
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="container main-content" id="main-content">
+        <h1><span class="sw-icon" aria-hidden="true"></span> SmartWallet</h1>
+        <p style="text-align: center; color: #c3d5e8; font-size: 16px; margin-top: -10px; margin-bottom: 30px;">
+            Interface for deployed smart contracts
+        </p>
+        
+        <div class="section">
+            <h3>Contract Information</h3>
+            <div class="contract-card">
+                <h4>Deployed Package</h4>
+                <div class="address-display">Package ID: 0x4cf1c6f64b1b92a7c221175adb4cb9ebe3f5565b8d8e045419e667cad8eb9dcd</div>
+                <p><strong>Modules:</strong> wallet, member_index, multisig</p>
+                <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
+                <div class="form-group">
+                    <label>Network Selection:</label>
+                    <select id="networkSelect" onchange="changeNetwork()">
+                        <option value="devnet">Devnet</option>
+                        <option value="testnet" selected>Testnet</option>
+                        <option value="mainnet">Mainnet</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Wallet Connection</h3>
+            
+            <!-- Wallet Standard Connection (Recommended) -->
+            <div style="margin-bottom: 25px;">
+                <button onclick="connectWalletStandard()" class="primary-btn" style="background: linear-gradient(145deg, #4CAF50, #45a049); width: 100%; margin-bottom: 10px;">
+                    🔎 Discover Sui Wallets (Wallet Standard)
+                </button>
+                <p style="font-size: 12px; color: #c3d5e8; text-align: center; margin: 0;">
+                    Select a Sui-capable wallet to connect
+                </p>
+                <!-- Modal is defined near the end of body -->
+            </div>
+
+            <!-- Traditional Options -->
+            <details style="margin-top: 25px; border: 1px solid rgba(69,139,189,.3); border-radius: 8px; padding: 15px;">
+                <summary style="cursor: pointer; font-weight: 600; color: #c3d5e8; font-size: 13px;">⚙️ Traditional Wallet Options</summary>
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(69,139,189,.2);">
+                    <button onclick="createNewWallet()">Create New Wallet</button>
+                    <div class="form-group">
+                        <input type="text" id="privateKeyInput" placeholder="Private key for import...">
+                        <button onclick="restoreWallet()">Import Wallet</button>
+                    </div>
+                </div>
+            </details>
+            
+            <!-- Manual Connection -->
+            <details style="margin-top: 15px; border: 1px solid rgba(139,69,189,.3); border-radius: 8px; padding: 10px;">
+                <summary style="cursor: pointer; font-weight: 500; color: #c3d5e8; font-size: 12px;">🔗 Manual Connection</summary>
+                <div style="margin-top: 10px;">
+                    <p style="font-size: 11px; color: #a0b3c5; margin: 0 0 8px 0;">If you have a wallet address to view (read-only mode)</p>
+                    <input type="text" id="manualAddress" placeholder="0x...your wallet address" style="width: 70%; font-size: 12px;">
+                    <button onclick="manualConnect(document.getElementById('manualAddress').value)" style="font-size: 12px; padding: 5px 10px;">Connect</button>
+                </div>
+            </details>
+
+            <!-- Debug Section -->
+            <details style="margin-top: 15px; border: 1px solid rgba(69,139,189,.2); border-radius: 8px; padding: 10px;">
+                <summary style="cursor: pointer; font-weight: 500; color: #c3d5e8; font-size: 12px;">🔍 Debug Wallet Detection</summary>
+                <div style="margin-top: 10px;">
+                    <button onclick="debugWalletDetection()" style="font-size: 12px; padding: 5px 10px;">Debug Wallet Detection</button>
+                    <p style="font-size: 11px; color: #a0b3c5; margin: 5px 0 0 0;">Check what wallet extensions are detected</p>
+                </div>
+            </details>
+            
+            <div id="walletInfo" class="wallet-info" style="display: none;">
+                <h4>Connected Wallet</h4>
+                <p><strong>Type:</strong> <span id="walletType">Unknown</span></p>
+                <p><strong>Address:</strong> <span id="currentAddress"></span></p>
+                <p><strong>Balance:</strong> <span id="currentBalance">Loading...</span></p>
+                <div id="accountSelector" class="form-group" style="display: none; align-items: center; gap: 6px;">
+                    <label for="accountSelect" style="font-size: 12px; color: #cfe4f7;">Account:</label>
+                    <select id="accountSelect" style="font-size: 12px; padding: 6px; min-width: 260px;"></select>
+                    <button onclick="useSelectedAccount()" style="font-size: 12px; padding: 6px 10px;">Use Account</button>
+                    <button onclick="refreshWalletAccounts()" style="font-size: 12px; padding: 6px 10px;">Refresh</button>
+                </div>
+                <button onclick="getWalletBalance()">Refresh Balance</button>
+                <button onclick="switchWalletAccount()" style="margin-left: 10px;">Switch Account</button>
+                <button onclick="disconnectWallet()" style="background: #dc3545; margin-left: 10px;">Disconnect</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Registry Management</h3>
+            <p>The member registry tracks wallet memberships across the system.</p>
+            <div class="form-group">
+                <div class="address-display">Registry ID: <span id="registryId">Not found</span></div>
+            </div>
+            <button onclick="initRegistry()">Initialize Registry</button>
+            <button onclick="findRegistry()">Find Registry</button>
+        </div>
+
+        <div class="section">
+            <h3>Smart Wallet Management</h3>
+            <div class="form-group">
+                <label>Wallet Name:</label>
+                <input type="text" id="walletName" placeholder="My Smart Wallet">
+            </div>
+            <div class="form-group">
+                <label>Recovery Key Address (optional):</label>
+                <input type="text" id="recoveryKey" placeholder="Leave empty to use current wallet">
+            </div>
+            <button onclick="createSmartWallet()" class="primary-btn">Create Smart Wallet</button>
+            <button onclick="findMyWallets()">Find My Wallets</button>
+            
+            <div id="walletsList"></div>
+        </div>
+
+        <div id="smartWalletOperations" class="section" style="display: none;">
+            <h3>Smart Wallet Operations</h3>
+            <div class="address-display">Selected Wallet: <span id="selectedWalletId">None</span></div>
+            
+            <div class="contract-card">
+                <h4>Add Member</h4>
+                <div class="form-group">
+                    <label>Member Address:</label>
+                    <input type="text" id="newMemberAddress" placeholder="0x...">
+                </div>
+                <div class="form-group">
+                    <label>Role Name:</label>
+                    <input type="text" id="memberRole" placeholder="member" value="member">
+                </div>
+                <div class="form-group">
+                    <label>Weight:</label>
+                    <input type="number" id="memberWeight" placeholder="1" value="1" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Permissions (1=propose, 2=approve, 4=execute, 7=all):</label>
+                    <input type="number" id="memberPermissions" placeholder="7" value="7" min="1" max="7">
+                </div>
+                <button onclick="addMember()">Add Member</button>
+            </div>
+
+            <div class="contract-card">
+                <h4>Create Proposal</h4>
+                <div class="form-group">
+                    <label>Proposal ID:</label>
+                    <input type="number" id="proposalId" placeholder="Auto-generated if empty">
+                </div>
+                <div class="form-group">
+                    <label>Action Type:</label>
+                    <input type="text" id="actionKind" placeholder="transfer" value="transfer">
+                </div>
+                <div class="form-group">
+                    <label>Target Address:</label>
+                    <input type="text" id="targetAddress" placeholder="0x...">
+                </div>
+                <div class="form-group">
+                    <label>Action Data (for transfer: amount in SUI):</label>
+                    <input type="text" id="actionData" placeholder="1.0">
+                </div>
+                <div class="form-group">
+                    <label>Voting Threshold:</label>
+                    <input type="number" id="proposalThreshold" placeholder="1" value="1" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Deadline (timestamp, 0 for no deadline):</label>
+                    <input type="number" id="proposalDeadline" placeholder="0" value="0">
+                </div>
+                <button onclick="createProposal()">Create Proposal</button>
+            </div>
+
+            <div class="contract-card">
+                <h4>Approve Proposal</h4>
+                <div class="form-group">
+                    <label>Proposal ID:</label>
+                    <input type="number" id="approveProposalId" placeholder="Proposal ID">
+                </div>
+                <button onclick="approveProposal()">Approve Proposal</button>
+            </div>
+
+            <div class="contract-card">
+                <h4>Deposit to Wallet</h4>
+                <div class="form-group">
+                    <label>Amount (SUI):</label>
+                    <input type="number" id="depositAmount" placeholder="1.0" step="0.001" min="0.001">
+                </div>
+                <button onclick="depositToWallet()">Deposit SUI</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Console Output</h3>
+            <button onclick="clearOutput()">Clear Output</button>
+            <div id="output">SmartWallet Contract Interface Ready
+
+</div>
+        </div>
+    </div>
+    <!-- Wallet Selection Modal -->
+    <div id="walletModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="walletModalTitle">
+      <div class="modal" role="document">
+        <div class="modal-header">
+          <h4 id="walletModalTitle" class="modal-title">Select a Sui Wallet</h4>
+          <button id="walletModalClose" class="modal-close" onclick="(function(){ try{ closeWalletModal(); }catch(e){} })()" aria-label="Close">✕</button>
+        </div>
+        <div id="walletModalBody" class="modal-body">
+          <div id="walletModalList"></div>
+        </div>
+      </div>
+    </div>
+    
+</body>
+</html>

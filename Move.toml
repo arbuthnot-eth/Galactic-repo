@@ -1,0 +1,10 @@
+[package]
+name = "vwallet_core"
+version = "0.0.1"
+edition = "2024.beta"
+
+[dependencies]
+multisig = { git = "https://github.com/MystenLabs/multisig-move.git", subdir = "move", rev = "main" }
+
+[addresses]
+vwallet_core = "0x0"
