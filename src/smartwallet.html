@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartWallet - Contract Interface</title>
+    <title>SmartWallet UI</title>
     <!-- Performance optimizations -->
     <link rel="dns-prefetch" href="//fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3828,7 +3828,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             if (window.SuiSDK) return; // Already injected (e.g., in production build)
             try {
                 const s=document.createElement('script');
-                s.src='dist/sui-sdk-bundle.iife.js';
+                s.src='/dist/sui-sdk-bundle.iife.js';
                 s.async=false;
                 s.onload=function(){console.log('Dev SDK bundle loaded');};
                 s.onerror=function(){console.warn('Dev SDK bundle not found. Run "npm run build" or serve dist/.');};
@@ -3840,18 +3840,46 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
     <script type="module">
         // Contract Configuration
         const CONTRACT_CONFIG = {
-            PACKAGE_ID: '0x4cf1c6f64b1b92a7c221175adb4cb9ebe3f5565b8d8e045419e667cad8eb9dcd',
+            PACKAGE_IDS: {
+                devnet: '',
+                testnet: '0xe427ece956321d00164ada40d6d1f4ba7bb9313881dbd1e551ee0fd5e2379723',
+                mainnet: ''
+            },
             MODULES: {
-                WALLET: 'wallet',
-                MEMBER_INDEX: 'member_index',
+                WALLET: 'core',
+                ROSTER: 'roster',
                 MULTISIG: 'multisig'
             }
+        };
+
+        function getPackageId() {
+            try {
+                const key = `vwallet:packageId:${currentNetwork}`;
+                const override = localStorage.getItem(key);
+                if (override && /^0x[0-9a-fA-F]{40,}$/.test(override)) return override;
+            } catch (_) {}
+            const ids = CONTRACT_CONFIG.PACKAGE_IDS || {};
+            return ids[currentNetwork] || ids.testnet || ids.devnet || ids.mainnet || '';
+        }
+
+        // Roster discovery configuration
+        const DISCOVERY_CONFIG = {
+            // Optional: provide canonical roster IDs per network to avoid discovery
+            // Fill these after deployment; leave empty strings to skip
+            rosterIds: {
+                devnet: '',
+                testnet: '0x117a40896e2c86aa96b08206b8540f69240993d196ba35efb06746d9765e4614',
+                mainnet: ''
+            },
+            // Optional: SuiNS name that carries a `roster_id` record in NameRecord.data
+            // Example: 'roster.sui' → NameRecord.data.roster_id = "0x..."
+            suinsName: 'roster.sui'
         };
 
         let currentWallet = null;
         let currentNetwork = 'testnet'; // Your contracts are on testnet
         let suiClient = null;
-        let memberRegistry = null; // Will store the shared Registry object ID
+        let rosterId = null; // Will store the shared Roster object ID
         let connectedWalletStandard = null; // Will store connected wallet standard wallet
 
         function waitForSDKs() {
@@ -4682,99 +4710,132 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
 
         // Smart Contract Functions
 
-        // Initialize Member Registry (call once after deployment)
-        async function initRegistry() {
+        // Initialize Roster (call once after deployment)
+        async function initRoster() {
             if (!currentWallet) {
                 logOutput('No wallet connected', true);
                 return;
             }
 
             try {
-                logOutput('Initializing member registry...');
+                logOutput('Initializing roster...');
                 const { Transaction } = window.SuiSDK.Sui;
                 const tx = new Transaction();
 
                 tx.moveCall({
-                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.MEMBER_INDEX}::init_registry`,
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::init_roster`,
                     arguments: []
                 });
 
                 const result = await signAndExecuteTransaction(tx);
 
-                logOutput(`Registry initialized! Transaction: ${result.digest}`);
+                logOutput(`Roster initialized! Transaction: ${result.digest}`);
 
                 // Persist digest for fallback discovery
-                try { localStorage.setItem('lastRegistryInitDigest', result.digest); } catch (_) {}
+                try { localStorage.setItem('lastRosterInitDigest', result.digest); } catch (_) {}
 
-                // Try to extract the created shared Registry object ID directly from the response
-                const REGISTRY_TYPE = `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.MEMBER_INDEX}::Registry`;
+                // Try to extract the created shared Roster object ID directly from the response
+                const ROSTER_TYPE = `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::Roster`;
                 let createdId = null;
 
                 try {
                     const oc = result && result.objectChanges ? result.objectChanges : [];
                     if (Array.isArray(oc) && oc.length) {
-                        const created = oc.find(c => c.type === 'created' && c.objectType === REGISTRY_TYPE);
+                        const created = oc.find(c => c.type === 'created' && c.objectType === ROSTER_TYPE);
                         if (created && created.objectId) createdId = created.objectId;
                     }
                 } catch (_) {}
 
                 // If not present, wait for tx to finalize then fetch full details
                 if (!createdId) {
-                    const fetched = await extractCreatedObjectIdFromDigest(result.digest, REGISTRY_TYPE);
+                    const fetched = await extractCreatedObjectIdFromDigest(result.digest, ROSTER_TYPE);
                     if (fetched) createdId = fetched;
-                    else logOutput('Note: could not fetch created Registry ID from digest yet', true);
+                    else logOutput('Note: could not fetch created Roster ID from digest yet', true);
                 }
 
                 if (createdId) {
-                    memberRegistry = createdId;
-                    try { localStorage.setItem('memberRegistryId', memberRegistry); } catch (_) {}
-                    document.getElementById('registryId').textContent = memberRegistry;
-                    logOutput(`Found registry: ${memberRegistry}`);
+                    rosterId = createdId;
+                    try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
+                    document.getElementById('rosterId').textContent = rosterId;
+                    logOutput(`Found roster: ${rosterId}`);
                 } else {
-                    // Fallback: search via indexer for any Registry objects (shared, global)
-                    await findRegistry();
+                    // Fallback: search via indexer for any Roster objects (shared, global)
+                    await findRoster();
                 }
             } catch (error) {
-                logOutput('Error initializing registry: ' + error.message, true);
+                logOutput('Error initializing roster: ' + error.message, true);
             }
         }
 
-        // Find the shared Registry object
-        async function findRegistry() {
+        // Find the shared Roster object
+        async function findRoster() {
             try {
-                logOutput('Looking for member registry...');
+                logOutput('Looking for roster...');
 
-                // First, check local storage cache
+                // 0) Prefer configured canonical ID
                 try {
-                    const cached = localStorage.getItem('memberRegistryId');
-                    if (cached) {
-                        memberRegistry = cached;
-                        document.getElementById('registryId').textContent = memberRegistry;
-                        logOutput(`Found registry (cached): ${memberRegistry}`);
+                    const configured = (DISCOVERY_CONFIG && DISCOVERY_CONFIG.rosterIds && DISCOVERY_CONFIG.rosterIds[currentNetwork]) || '';
+                    if (configured && /^0x[0-9a-fA-F]{40,}$/.test(configured)) {
+                        rosterId = configured;
+                        try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
+                        document.getElementById('rosterId').textContent = rosterId;
+                        logOutput(`Found roster (configured): ${rosterId}`);
                         return;
                     }
                 } catch (_) {}
 
-                // Fallback: if we have last init digest, try to fetch the created object id
+                // 1) Try SuiNS if available and a name is configured (skip on devnet)
                 try {
-                    const lastDigest = localStorage.getItem('lastRegistryInitDigest');
+                    const name = DISCOVERY_CONFIG?.suinsName || '';
+                    if (name && currentNetwork !== 'devnet' && window.SuiSDK?.SuiNS?.SuinsClient) {
+                        const suinsNetwork = currentNetwork === 'mainnet' ? 'mainnet' : 'testnet';
+                        const { SuinsClient } = window.SuiSDK.SuiNS;
+                        const suins = new SuinsClient({ client: suiClient, network: suinsNetwork });
+                        const rec = await suins.getNameRecord(name);
+                        const rid = (rec && rec.data && rec.data.roster_id) || null;
+                        if (rid && /^0x[0-9a-fA-F]{40,}$/.test(rid)) {
+                            rosterId = rid;
+                            try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
+                            document.getElementById('rosterId').textContent = rosterId;
+                            logOutput(`Found roster (SuiNS: ${name}): ${rosterId}`);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // Non-fatal; continue with other discovery paths
+                }
+
+                // 2) Check local storage cache
+                try {
+                    const cached = localStorage.getItem('rosterId');
+                    if (cached) {
+                        rosterId = cached;
+                        document.getElementById('rosterId').textContent = rosterId;
+                        logOutput(`Found roster (cached): ${rosterId}`);
+                        return;
+                    }
+                } catch (_) {}
+
+                // 3) Fallback: if we have last init digest, try to fetch the created object id
+                try {
+                    const lastDigest = localStorage.getItem('lastRosterInitDigest');
                     if (lastDigest) {
-                        const REGISTRY_TYPE = `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.MEMBER_INDEX}::Registry`;
-                        const createdId = await extractCreatedObjectIdFromDigest(lastDigest, REGISTRY_TYPE);
+                        const ROSTER_TYPE = `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::Roster`;
+                        const createdId = await extractCreatedObjectIdFromDigest(lastDigest, ROSTER_TYPE);
                         if (createdId) {
-                            memberRegistry = createdId;
-                            try { localStorage.setItem('memberRegistryId', memberRegistry); } catch (_) {}
-                            document.getElementById('registryId').textContent = memberRegistry;
-                            logOutput(`Found registry: ${memberRegistry}`);
+                            rosterId = createdId;
+                            try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
+                            document.getElementById('rosterId').textContent = rosterId;
+                            logOutput(`Found roster: ${rosterId}`);
                             return;
                         }
                     }
                 } catch (_) {}
 
                 // As a final fallback, inform user
-                logOutput('No registry found - you may need to initialize one first', true);
+                logOutput('No roster found - you may need to initialize one first', true);
             } catch (error) {
-                logOutput('Error finding registry: ' + error.message, true);
+                logOutput('Error finding roster: ' + error.message, true);
             }
         }
 
@@ -4802,7 +4863,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const clockId = '0x6';
 
                 const smartWallet = tx.moveCall({
-                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::create_wallet`,
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::create_wallet`,
                     arguments: [
                         tx.pure.address(currentWallet.address),
                         tx.pure.address(recoveryKey),
@@ -4835,7 +4896,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const objects = await suiClient.getOwnedObjects({
                     owner: currentWallet.address,
                     filter: {
-                        StructType: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::SmartWallet`
+                        StructType: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::SmartWallet`
                     },
                     options: { showContent: true, showDisplay: true }
                 });
@@ -4923,8 +4984,8 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 return;
             }
 
-            if (!memberRegistry) {
-                logOutput('No registry found - please initialize registry first', true);
+            if (!rosterId) {
+                logOutput('No roster found - please initialize roster first', true);
                 return;
             }
 
@@ -4934,10 +4995,10 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const tx = new Transaction();
 
                 tx.moveCall({
-                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::add_member`,
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::add_member`,
                     arguments: [
                         tx.object(walletId),
-                        tx.object(memberRegistry),
+                        tx.object(rosterId),
                         tx.pure.address(newMember),
                         tx.pure.vector('u8', Array.from(new TextEncoder().encode(roleName))),
                         tx.pure.u64(weight),
@@ -4980,11 +5041,20 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const { Transaction } = window.SuiSDK.Sui;
                 const tx = new Transaction();
 
-                // Convert action data to bytes (for transfer, it should be the amount in MIST)
+                // Convert action data to bytes
                 let dataBytes;
                 if (actionKind === 'transfer') {
-                    const amount = parseFloat(actionData) * 1_000_000_000; // Convert SUI to MIST
-                    dataBytes = new TextEncoder().encode(amount.toString());
+                    const amountInMist = Math.floor(parseFloat(actionData) * 1_000_000_000);
+                    try {
+                        const { bcs } = window.SuiSDK.BCS;
+                        // Prefer ser API; fallback to builder style
+                        const bytes = (bcs && typeof bcs.ser === 'function')
+                            ? bcs.ser('u64', amountInMist).toBytes()
+                            : bcs.u64().serialize(amountInMist).toBytes();
+                        dataBytes = bytes;
+                    } catch (_) {
+                        throw new Error('BCS encoding unavailable for u64. Ensure @mysten/bcs is bundled.');
+                    }
                 } else {
                     dataBytes = new TextEncoder().encode(actionData);
                 }
@@ -4992,7 +5062,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const clockId = '0x6';
 
                 tx.moveCall({
-                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::propose_action`,
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::propose_action`,
                     arguments: [
                         tx.object(walletId),
                         tx.pure.u64(proposalId),
@@ -5002,7 +5072,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                         tx.pure.u64(threshold),
                         tx.pure.u64(deadline),
                         // Empty vector<Condition>: explicit element type using vector helper
-                        tx.pure.vector(`${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::Condition`, []),
+                        tx.pure.vector(`${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::Condition`, []),
                         tx.object(clockId)
                     ]
                 });
@@ -5041,10 +5111,10 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const clockId = '0x6';
 
                 tx.moveCall({
-                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::approve_proposal`,
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::approve_proposal`,
                     arguments: [
                         tx.object(walletId),
-                        tx.pure(proposalId),
+                        tx.pure.u64(proposalId),
                         tx.object(clockId)
                     ]
                 });
@@ -5074,10 +5144,10 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 const tx = new Transaction();
 
                 const amountInMist = Math.floor(amount * 1_000_000_000);
-                const coin = tx.splitCoins(tx.gas, [tx.pure(amountInMist)]);
+                const coin = tx.splitCoins(tx.gas, [tx.pure.u64(amountInMist)]);
 
                 tx.moveCall({
-                    target: `${CONTRACT_CONFIG.PACKAGE_ID}::${CONTRACT_CONFIG.MODULES.WALLET}::deposit`,
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::deposit`,
                     arguments: [
                         tx.object(walletId),
                         coin
@@ -5099,6 +5169,12 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             const networkSelect = document.getElementById('networkSelect');
             currentNetwork = networkSelect.value;
             logOutput(`Network changed to: ${currentNetwork}`);
+            try {
+                const pidEl = document.getElementById('packageIdDisplay');
+                if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
+                const inp = document.getElementById('packageIdInput');
+                if (inp) inp.value = getPackageId() || '';
+            } catch (_) {}
             
             // Reinitialize client
             initializeSuiClient().then(() => {
@@ -5106,6 +5182,38 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                     getWalletBalance();
                 }
             });
+        }
+
+        function savePackageIdOverride() {
+            try {
+                const inp = document.getElementById('packageIdInput');
+                const val = (inp && inp.value || '').trim();
+                if (!/^0x[0-9a-fA-F]{40,}$/.test(val)) {
+                    logOutput('Invalid package ID format. Expect 0x-prefixed hex.', true);
+                    return;
+                }
+                const key = `vwallet:packageId:${currentNetwork}`;
+                localStorage.setItem(key, val);
+                const pidEl = document.getElementById('packageIdDisplay');
+                if (pidEl) pidEl.textContent = val;
+                logOutput(`Saved package ID override for ${currentNetwork}.`);
+            } catch (e) {
+                logOutput('Failed to save package ID: ' + e.message, true);
+            }
+        }
+
+        function clearPackageIdOverride() {
+            try {
+                const key = `vwallet:packageId:${currentNetwork}`;
+                localStorage.removeItem(key);
+                const pidEl = document.getElementById('packageIdDisplay');
+                if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
+                const inp = document.getElementById('packageIdInput');
+                if (inp) inp.value = getPackageId() || '';
+                logOutput(`Cleared package ID override for ${currentNetwork}.`);
+            } catch (e) {
+                logOutput('Failed to clear package ID: ' + e.message, true);
+            }
         }
 
         function clearOutput() {
@@ -5258,8 +5366,9 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
         window.useSelectedAccount = useSelectedAccount;
         window.debugWalletDetection = debugWalletDetection;
         window.manualConnect = manualConnect;
-        window.initRegistry = initRegistry;
-        window.findRegistry = findRegistry;
+        window.initRoster = initRoster;
+        window.findRoster = findRoster;
+        // Backwards-compatible aliases removed to prefer roster naming
         window.createSmartWallet = createSmartWallet;
         window.findMyWallets = findMyWallets;
         window.addMember = addMember;
@@ -5278,6 +5387,16 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             
             waitForSDKs().then(async () => {
                 await initializeSuiClient();
+                // Auto-discover roster on first load
+                try {
+                    await findRoster();
+                } catch (e) { /* non-fatal */ }
+                try {
+                    const pidEl = document.getElementById('packageIdDisplay');
+                    if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
+                    const inp = document.getElementById('packageIdInput');
+                    if (inp) inp.value = getPackageId() || '';
+                } catch (_) {}
                 
                 // Wallet detection is now working - no need for automatic debug
                 
@@ -5341,8 +5460,17 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             <h3>Contract Information</h3>
             <div class="contract-card">
                 <h4>Deployed Package</h4>
-                <div class="address-display">Package ID: 0x4cf1c6f64b1b92a7c221175adb4cb9ebe3f5565b8d8e045419e667cad8eb9dcd</div>
-                <p><strong>Modules:</strong> wallet, member_index, multisig</p>
+                <div class="address-display">Package ID: <span id="packageIdDisplay">Not set</span></div>
+                <div class="form-group">
+                    <label for="packageIdInput">Set Package ID for current network</label>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <input id="packageIdInput" type="text" placeholder="0x..." style="flex:1;" />
+                        <button onclick="savePackageIdOverride()" style="white-space:nowrap;">Save</button>
+                        <button onclick="clearPackageIdOverride()" style="white-space:nowrap; background:#6c757d;">Clear</button>
+                    </div>
+                    <div style="font-size:11px; color:#a0b3c5; margin-top:6px;">Overrides are stored in localStorage per network.</div>
+                </div>
+                <p><strong>Modules:</strong> core, roster, multisig</p>
                 <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
                 <div class="form-group">
                     <label>Network Selection:</label>
@@ -5418,13 +5546,13 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
         </div>
 
         <div class="section">
-            <h3>Registry Management</h3>
-            <p>The member registry tracks wallet memberships across the system.</p>
+            <h3>Roster Management</h3>
+            <p>The roster tracks wallet memberships across the system.</p>
             <div class="form-group">
-                <div class="address-display">Registry ID: <span id="registryId">Not found</span></div>
+                <div class="address-display">Roster ID: <span id="rosterId">Not found</span></div>
             </div>
-            <button onclick="initRegistry()">Initialize Registry</button>
-            <button onclick="findRegistry()">Find Registry</button>
+            <button onclick="initRoster()">Initialize Roster</button>
+            <button onclick="findRoster()">Find Roster</button>
         </div>
 
         <div class="section">

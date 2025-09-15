@@ -1,5 +1,5 @@
 #[allow(duplicate_alias)]
-module vwallet_core::wallet {
+module vwallet::core {
     use sui::object::{Self as object, id_address, UID};
     use sui::tx_context;
     use sui::vec_map::{Self as vec_map, VecMap};
@@ -12,7 +12,7 @@ module vwallet_core::wallet {
     use sui::balance::{Self, Balance};
     use sui::sui::SUI;
     use multisig::multisig;
-    use vwallet_core::member_index;
+    use vwallet::roster;
 
     // -----------------------------------------------------------------
     // Errors (uint64 codes - keep them stable for front-ends)
@@ -197,13 +197,13 @@ module vwallet_core::wallet {
     /// `propose` permission **or** the recovery key.
     public fun add_member(
         wallet: &mut SmartWallet,
-        registry: &mut member_index::Registry,
+        roster_obj: &mut roster::Roster,
         new_signer: address,
         role_name: vector<u8>,
         weight: u64,
         permissions: u64,
         auth_signer: address,
-        _ctx: &mut tx_context::TxContext,
+        ctx: &mut tx_context::TxContext,
     ) {
         assert!(wallet.version == CURRENT_VERSION, E_INVALID_VERSION);
         // Auth check
@@ -223,7 +223,7 @@ module vwallet_core::wallet {
         store_multisig_id(wallet);
 
         // Update reverse index
-        member_index::add_wallet_for_member(registry, new_signer, id_address(wallet));
+        roster::add_wallet_for_member(roster_obj, new_signer, id_address(wallet), ctx);
 
         // Emit event
         event::emit(MemberAdded {
@@ -236,7 +236,7 @@ module vwallet_core::wallet {
     /// Remove an existing member. Same auth rules as `add_member`.
     public fun remove_member(
         wallet: &mut SmartWallet,
-        registry: &mut member_index::Registry,
+        roster_obj: &mut roster::Roster,
         signer: address,
         auth_signer: address,
         _ctx: &mut tx_context::TxContext,
@@ -252,7 +252,7 @@ module vwallet_core::wallet {
         // Update multisig_id
         store_multisig_id(wallet);
         // Update reverse index
-        member_index::remove_wallet_for_member(registry, signer, id_address(wallet));
+        roster::remove_wallet_for_member(roster_obj, signer, id_address(wallet));
 
         event::emit(MemberRemoved {
             wallet_id: id_address(wallet),
@@ -414,7 +414,7 @@ module vwallet_core::wallet {
     /// Recover the wallet - wipes the member set and creates a fresh admin.
     public fun recover(
         wallet: &mut SmartWallet,
-        registry: &mut member_index::Registry,
+        roster_obj: &mut roster::Roster,
         new_signer: address,
         role_name: vector<u8>,
         weight: u64,
@@ -431,7 +431,7 @@ module vwallet_core::wallet {
         let mut i = 0;
         while (i < vector::length(&keys)) {
             let member = vector::borrow(&keys, i);
-            member_index::remove_wallet_for_member(registry, *member, id_address(wallet));
+            roster::remove_wallet_for_member(roster_obj, *member, id_address(wallet));
             i = i + 1;
         };
         wallet.members = vec_map::empty();
@@ -444,7 +444,7 @@ module vwallet_core::wallet {
         store_multisig_id(wallet);
 
         // Update reverse index for the fresh admin
-        member_index::add_wallet_for_member(registry, new_signer, id_address(wallet));
+        roster::add_wallet_for_member(roster_obj, new_signer, id_address(wallet), _ctx);
     }
 
     /// Generic extension point - callers can store any arbitrary key/value
@@ -529,41 +529,30 @@ module vwallet_core::wallet {
         members: &VecMap<address, Role>,
         threshold: u64,
     ): address {
-        // Gather public keys and **weights as u8** (multisig lib expects u8).
-        let pks: vector<vector<u8>> = vector[];
-        let wts: vector<u8> = vector[];
+        // Gather public keys and weights as u8 (multisig lib expects u8)
         let keys = vec_map::keys(members);
-        let i = 0;
-        let (final_pks, final_wts) = compute_multisig_loop(&keys, pks, wts, i, members);
-        
-        // Use the actual multisig library to derive the address
-        multisig::derive_multisig_address(final_pks, final_wts, (threshold as u16))
-    }
-
-    // Helper function to work around mut keyword limitations
-    fun compute_multisig_loop(
-        keys: &vector<address>,
-        mut pks: vector<vector<u8>>,
-        mut wts: vector<u8>,
-        i: u64,
-        members: &VecMap<address, Role>
-    ): (vector<vector<u8>>, vector<u8>) {
-        if (i >= vector::length(keys)) {
-            (pks, wts)
-        } else {
-            let member = vector::borrow(keys, i);
+        let mut pks = vector::empty<vector<u8>>();
+        let mut wts = vector::empty<u8>();
+        let mut i = 0;
+        while (i < vector::length(&keys)) {
+            let member = vector::borrow(&keys, i);
             let role = vec_map::get(members, member);
-            // For now, return empty pubkey since we don't have a proper wallet context
-            // In a real implementation, pubkeys would be stored on the wallet's UID
             let pk = vector::empty<u8>();
             vector::push_back(&mut pks, pk);
-            // Truncate weight safely - weights >255 are unsupported by the
-            // underlying multisig lib; we guard against that at insertion.
+            // Truncate weight safely - weights >255 are unsupported by the multisig lib
             vector::push_back(&mut wts, (role.weight as u8));
-            let i_new = i + 1;
-            compute_multisig_loop(keys, pks, wts, i_new, members)
-        }
+            i = i + 1;
+        };
+        // Use the actual multisig library to derive the address
+        multisig::derive_multisig_address(pks, wts, (threshold as u16))
     }
+
+    /// Convenience wrapper: compute the multisig id using a wallet reference.
+    public fun compute_multisig_id_for_wallet(wallet: &SmartWallet, threshold: u64): address {
+        compute_multisig_id(&wallet.members, threshold)
+    }
+
+    
 
     /// Store (or update) the wallet-wide deterministic multisig identifier.
     /// The identifier is written under the well-known key `"multisig_id"` so

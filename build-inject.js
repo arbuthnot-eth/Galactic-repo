@@ -10,8 +10,8 @@ const htmlFiles = [
     name: 'vWallet'
   },
   {
-    input: 'smartwallet-dev.html', 
-    output: 'smartwallet.html',
+    input: 'src/smartwallet-dev.html', 
+    output: 'src/smartwallet.html',
     name: 'SmartWallet'
   }
 ];
