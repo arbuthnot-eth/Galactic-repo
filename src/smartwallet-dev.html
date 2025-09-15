@@ -603,20 +603,28 @@
         
         // Helper function for successful wallet connection
         async function handleSuccessfulConnection(account, wallet, walletName) {
-            currentWallet = { 
-                address: account.address, 
+            currentWallet = {
+                address: account.address,
                 type: 'wallet_standard',
                 wallet: wallet
             };
             connectedWalletStandard = wallet;
-            
+
             document.getElementById('currentAddress').textContent = account.address;
             document.getElementById('walletInfo').style.display = 'block';
             document.getElementById('walletType').textContent = walletName + ' Wallet';
-            
+
             logOutput(`✅ Connected to ${walletName}!`);
             logOutput(`Address: ${account.address}`);
             await getWalletBalance();
+
+            // Automatically find wallets after successful connection
+            try {
+                await findMyWallets();
+            } catch (e) {
+                // Non-fatal error, just log it
+                logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
+            }
         }
 
         // Open modal with wallet selection (suiWallets are already filtered for Sui compatibility)
@@ -775,22 +783,30 @@
                 
                 if (accounts && accounts.length > 0) {
                     const account = accounts[0];
-                    currentWallet = { 
-                        address: account.address, 
+                    currentWallet = {
+                        address: account.address,
                         type: 'wallet_standard',
                         wallet: wallet
                     };
                     connectedWalletStandard = wallet;
                     attachWalletEvents(wallet);
                     setAccountsList(accounts);
-                    
+
                     document.getElementById('currentAddress').textContent = account.address;
                     document.getElementById('walletInfo').style.display = 'block';
                     document.getElementById('walletType').textContent = `${wallet.name || 'Wallet Standard'}`;
-                    
+
                     logOutput(`Connected to ${wallet.name || 'wallet'}!`);
                     logOutput(`Address: ${account.address}`);
                     await getWalletBalance();
+
+                    // Automatically find wallets after successful connection
+                    try {
+                        await findMyWallets();
+                    } catch (e) {
+                        // Non-fatal error, just log it
+                        logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
+                    }
                 } else {
                     throw new Error('No accounts found in wallet');
                 }
@@ -864,6 +880,14 @@
                 document.getElementById('walletType').textContent = 'Sui Wallet (window.sui)';
                 logOutput('✅ Connected via window.sui');
                 await getWalletBalance();
+
+                // Automatically find wallets after successful connection
+                try {
+                    await findMyWallets();
+                } catch (e) {
+                    // Non-fatal error, just log it
+                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
+                }
             } catch (e) {
                 throw new Error('window.sui connection failed: ' + e.message);
             }
@@ -934,7 +958,15 @@
                 logOutput('✅ Connected via Phantom (Sui)');
                 logOutput(`Address: ${account.address}`);
                 await getWalletBalance();
-                
+
+                // Automatically find wallets after successful connection
+                try {
+                    await findMyWallets();
+                } catch (e) {
+                    // Non-fatal error, just log it
+                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
+                }
+
             } catch (e) {
                 logOutput(`Phantom Sui connection error: ${e.message}`, true);
                 throw new Error('Phantom Sui connection failed: ' + e.message);
@@ -1263,7 +1295,7 @@
                     const walletId = obj.data.objectId;
                     const walletData = obj.data.content.fields;
                     const memberCount = getMemberCountFromWalletFields(walletData);
-                    
+
                     const card = document.createElement('div');
                     card.className = 'contract-card';
                     card.innerHTML = `
@@ -1280,6 +1312,13 @@
                 });
 
                 logOutput(`Found ${objects.data.length} smart wallet(s)`);
+
+                // If only one wallet exists, automatically select it
+                if (objects.data.length === 1) {
+                    const singleWalletId = objects.data[0].data.objectId;
+                    window.selectSmartWallet(singleWalletId);
+                    logOutput(`Automatically selected the only available wallet: ${singleWalletId}`);
+                }
             } catch (error) {
                 logOutput('Error finding wallets: ' + error.message, true);
             }
