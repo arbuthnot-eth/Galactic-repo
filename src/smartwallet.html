@@ -126,6 +126,47 @@
             margin: 15px 0;
             backdrop-filter: blur(10px);
         }
+        .contract-card-group {
+            margin-top: 20px;
+            padding-top: 18px;
+            border-top: 1px solid rgba(69,139,189,.28);
+        }
+        details.section-toggle {
+            border: 1px solid rgba(69,139,189,.35);
+            border-radius: 10px;
+            background: linear-gradient(145deg, rgba(30,58,82,.65), rgba(45,74,102,.65));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+        }
+        details.section-toggle summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #cfe4f7;
+            font-size: 15px;
+            padding: 14px 18px;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        details.section-toggle summary::-webkit-details-marker { display: none; }
+        details.section-toggle summary::after {
+            content: '▾';
+            font-size: 14px;
+            transition: transform .2s ease;
+            color: #8fb9df;
+        }
+        details.section-toggle[open] summary::after {
+            transform: rotate(180deg);
+        }
+        details.section-toggle[open] summary {
+            border-bottom: 1px solid rgba(69,139,189,.25);
+            background: rgba(69,139,189,.12);
+        }
+        details.section-toggle .contract-card {
+            margin: 0;
+            border: none;
+            border-radius: 0 0 10px 10px;
+        }
         .address-display {
             font-family: 'Courier New', monospace;
             background: rgba(0,0,0,.3);
@@ -5701,33 +5742,49 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
         </p>
         
         <div class="section">
-            <h3>Contract Information</h3>
-            <div class="contract-card">
-                <h4>Deployed Package</h4>
-                <div class="address-display">Package ID:
-                    <span id="packageIdDisplay" class="address-value">Not set</span>
-                    <button type="button" class="copy-btn" data-copy-target="packageIdDisplay" aria-label="Copy package ID" title="Copy package ID">Copy</button>
-                </div>
-                <div class="form-group">
-                    <label for="packageIdInput">Set Package ID for current network</label>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <input id="packageIdInput" type="text" placeholder="0x..." style="flex:1;" />
-                        <button onclick="savePackageIdOverride()" style="white-space:nowrap;">Save</button>
-                        <button onclick="clearPackageIdOverride()" style="white-space:nowrap; background:#6c757d;">Clear</button>
+            <details class="section-toggle" id="contractInfoToggle">
+                <summary>📦 Contract Information</summary>
+                <div class="contract-card">
+                    <h4>Deployed Package</h4>
+                    <div class="address-display">Package ID:
+                        <span id="packageIdDisplay" class="address-value">Not set</span>
+                        <button type="button" class="copy-btn" data-copy-target="packageIdDisplay" aria-label="Copy package ID" title="Copy package ID">Copy</button>
                     </div>
-                    <div style="font-size:11px; color:#a0b3c5; margin-top:6px;">Overrides are stored in localStorage per network.</div>
+                    <div class="form-group">
+                        <label for="packageIdInput">Set Package ID for current network</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input id="packageIdInput" type="text" placeholder="0x..." style="flex:1;" />
+                            <button onclick="savePackageIdOverride()" style="white-space:nowrap;">Save</button>
+                            <button onclick="clearPackageIdOverride()" style="white-space:nowrap; background:#6c757d;">Clear</button>
+                        </div>
+                        <div style="font-size:11px; color:#a0b3c5; margin-top:6px;">Overrides are stored in localStorage per network.</div>
+                    </div>
+                    <p><strong>Modules:</strong> core, roster, multisig</p>
+                    <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
+                    <div class="form-group">
+                        <label>Network Selection:</label>
+                        <select id="networkSelect" onchange="changeNetwork()">
+                            <option value="devnet">Devnet</option>
+                            <option value="testnet" selected>Testnet</option>
+                            <option value="mainnet">Mainnet</option>
+                        </select>
+                    </div>
+                    <div class="contract-card-group">
+                        <h4>Roster Management</h4>
+                        <p style="margin-top: 8px;">The roster tracks wallet memberships across the system.</p>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <div class="address-display">Roster ID:
+                                <span id="rosterId" class="address-value">Not found</span>
+                                <button type="button" class="copy-btn" data-copy-target="rosterId" aria-label="Copy roster ID" title="Copy roster ID">Copy</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                            <button onclick="initRoster()">Initialize Roster</button>
+                            <button onclick="findRoster()">Find Roster</button>
+                        </div>
+                    </div>
                 </div>
-                <p><strong>Modules:</strong> core, roster, multisig</p>
-                <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
-                <div class="form-group">
-                    <label>Network Selection:</label>
-                    <select id="networkSelect" onchange="changeNetwork()">
-                        <option value="devnet">Devnet</option>
-                        <option value="testnet" selected>Testnet</option>
-                        <option value="mainnet">Mainnet</option>
-                    </select>
-                </div>
-            </div>
+            </details>
         </div>
 
         <div class="section">
@@ -5798,19 +5855,6 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 <button onclick="switchWalletAccount()" style="margin-left: 10px;">Switch Account</button>
                 <button onclick="disconnectWallet()" style="background: #dc3545; margin-left: 10px;">Disconnect</button>
             </div>
-        </div>
-
-        <div class="section">
-            <h3>Roster Management</h3>
-            <p>The roster tracks wallet memberships across the system.</p>
-            <div class="form-group">
-                <div class="address-display">Roster ID:
-                    <span id="rosterId" class="address-value">Not found</span>
-                    <button type="button" class="copy-btn" data-copy-target="rosterId" aria-label="Copy roster ID" title="Copy roster ID">Copy</button>
-                </div>
-            </div>
-            <button onclick="initRoster()">Initialize Roster</button>
-            <button onclick="findRoster()">Find Roster</button>
         </div>
 
         <div class="section">
