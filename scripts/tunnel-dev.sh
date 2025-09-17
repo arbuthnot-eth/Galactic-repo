@@ -190,7 +190,6 @@ echo "║       - $PUBLIC_URL"
 echo "║       - $PUBLIC_URL/src/smartwallet-dev.html"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-info "Press Ctrl+C to stop both servers..."
 
 # Wait for either process to exit
 wait
