@@ -24,7 +24,7 @@ localhost*
 tunnel-*.cloudflare.com
 
 # Scripts
-scripts/
+
 
 # Misc
 build/
