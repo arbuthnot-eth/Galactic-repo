@@ -1,9 +1,10 @@
 // src/index.ts - Entry file for bundling all Mysten Labs SDKs
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { PasskeyKeypair, BrowserPasskeyProvider, PasskeyPublicKey } from '@mysten/sui/keypairs/passkey';
 // import { WebCryptoSigner } from '@mysten/sui/keypairs/web-crypto-signer'; // Not available in current version
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
+import { normalizeSuiAddress, isValidSuiAddress } from '@mysten/sui/utils';
 import * as ZkLogin from '@mysten/sui/zklogin';
 import * as BCS from '@mysten/bcs';
 import * as Walrus from '@mysten/walrus';
@@ -28,6 +29,9 @@ const Sui = {
   Transaction, // Note: Using Transaction instead of TransactionBlock in v1.37.6
   // Add an alias for backward compatibility
   TransactionBlock: Transaction,
+  normalizeSuiAddress,
+  isValidSuiAddress,
+  Ed25519PublicKey,
   // Include BCS utilities from Sui
   BCS: BCS,
   // Include zkLogin functionality

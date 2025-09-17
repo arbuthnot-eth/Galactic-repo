@@ -27,6 +27,7 @@ module vwallet::core {
     const E_INVALID_VERSION: u64 = 8;
     const E_DUPLICATE_MEMBER: u64 = 9;
     const E_WEIGHT_OVERFLOW: u64 = 10;
+    const E_INSUFFICIENT_THRESHOLD: u64 = 11;
 
     // -----------------------------------------------------------------
     // Role - stores voting weight and a permission bitmask
@@ -160,7 +161,7 @@ module vwallet::core {
     ): SmartWallet {
         // Guard against duplicate creation (unlikely but defensive)
         assert!(initial_signer != @0x0, E_UNAUTHORIZED);
-        let admin_role = Role { name: b"admin", weight: 1, permissions: 7 };
+        let admin_role = Role { name: b"founder", weight: 10, permissions: 7 };
         let mut members = vec_map::empty();
         vec_map::insert(&mut members, initial_signer, admin_role);
 
@@ -215,7 +216,7 @@ module vwallet::core {
         assert!(!vec_map::contains(&wallet.members, &new_signer), E_DUPLICATE_MEMBER);
 
         // Weight sanity - avoid overflow when summed later
-        assert!(weight > 0, E_WEIGHT_OVERFLOW);
+        assert!(weight > 0 && weight <= 1000, E_WEIGHT_OVERFLOW);
         let role = Role { name: role_name, weight, permissions };
         vec_map::insert(&mut wallet.members, new_signer, role);
 
@@ -305,6 +306,10 @@ module vwallet::core {
 
         // Ensure proposal_id is fresh
         assert!(!vec_map::contains(&wallet.proposals, &proposal_id), E_INVALID_ROLE);
+
+        let total_weight = calculate_total_member_weight(&wallet.members);
+        let minimum_threshold = total_weight / 2 + 1;
+        assert!(proposal_threshold >= minimum_threshold, E_INSUFFICIENT_THRESHOLD);
 
         // Compute deterministic multisig ID for this exact member set + threshold
         let ms_id = compute_multisig_id(&wallet.members, proposal_threshold);
@@ -437,7 +442,15 @@ module vwallet::core {
         wallet.members = vec_map::empty();
 
         // Insert the new admin
-        let role = Role { name: role_name, weight, permissions };
+        let mut resolved_role_name = role_name;
+        if (vector::length(&resolved_role_name) == 0) {
+            resolved_role_name = b"founder";
+        };
+        let mut resolved_weight = weight;
+        if (resolved_weight == 0) {
+            resolved_weight = 10;
+        };
+        let role = Role { name: resolved_role_name, weight: resolved_weight, permissions };
         vec_map::insert(&mut wallet.members, new_signer, role);
 
         // Re-compute deterministic ID (now based on a single member)
@@ -498,6 +511,10 @@ module vwallet::core {
         balance::value(&wallet.balance)
     }
 
+    public fun total_member_weight(wallet: &SmartWallet): u64 {
+        calculate_total_member_weight(&wallet.members)
+    }
+
     // -----------------------------------------------------------------
     // PUBLIC VIEW-ONLY HELPERS
     // -----------------------------------------------------------------
@@ -520,6 +537,20 @@ module vwallet::core {
     // -----------------------------------------------------------------
     // Helper Functions (moved from helpers.move to avoid circular deps)
     // -----------------------------------------------------------------
+
+    /// Calculate total voting weight for the provided member set.
+    public fun calculate_total_member_weight(members: &VecMap<address, Role>): u64 {
+        let keys = vec_map::keys(members);
+        let mut total = 0u64;
+        let mut i = 0;
+        while (i < vector::length(&keys)) {
+            let member = vector::borrow(&keys, i);
+            let role = vec_map::get(members, member);
+            total = total + role.weight;
+            i = i + 1;
+        };
+        total
+    }
 
     /// Compute the deterministic multisig identifier for a given member set
     /// and a specific threshold. This is a thin wrapper around the

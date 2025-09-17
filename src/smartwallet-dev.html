@@ -101,10 +101,19 @@
         .primary-btn{border-radius:12px;padding:15px 25px;font-size:16px;font-weight:600;box-shadow:0 6px 15px rgba(0,0,0,.25);border:1px solid rgba(69,139,189,.5);cursor:pointer;transition:all .3s ease;background:linear-gradient(145deg,#2d4a66,#458BBD)}
         .primary-btn:hover{transform:translateY(-3px);box-shadow:0 10px 25px rgba(0,0,0,.35);background:linear-gradient(145deg,#458BBD,#5A9BD4)}
         input[type="text"],input[type="number"],input[type="password"],textarea{padding:12px;border:1px solid rgba(69,139,189,.4);border-radius:8px;margin:5px;background:rgba(30,58,82,.3);color:#f4f1ef;backdrop-filter:blur(5px);font-size:14px}
+        .copy-btn{margin:0 0 0 8px;padding:6px 10px;font-size:12px;line-height:1;border-radius:6px;background:rgba(69,139,189,.6);border:1px solid rgba(69,139,189,.5);box-shadow:none}
+        .copy-btn:hover{background:rgba(90,155,212,.85)}
+        .copy-btn:disabled{opacity:.6;cursor:not-allowed}
+        .copy-btn[data-copied="true"]{background:#2e7d32;border-color:#2e7d32;color:#fff}
+        .address-row,.address-display{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .address-value{font-family:'Courier New',monospace;font-size:13px;word-break:break-all}
+        .wallet-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+        .wallet-suins{display:inline-flex;align-items:center;gap:6px;padding:2px 6px;border-radius:6px;background:rgba(69,139,189,.2);font-size:12px;color:#aedaef}
         input[type="text"]:focus,input[type="number"]:focus,input[type="password"]:focus,textarea:focus{outline:none;border-color:#5A9BD4;box-shadow:0 0 10px rgba(90,155,212,.3)}
         input::placeholder,textarea::placeholder{color:rgba(244,241,239,.6)}
         #output{background:#2c3e50;color:#ecf0f1;padding:15px;border-radius:5px;font-family:'Courier New',monospace;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;margin-top:20px}
-        .wallet-info{background:#e8f5e8;border-left:4px solid #27ae60;padding:10px;margin:10px 0;color:#2c3e50}
+        .wallet-info{background:linear-gradient(145deg,#1f3b2f,#254836);border-left:4px solid #27ae60;padding:12px;margin:12px 0;border-radius:10px;color:#e6f2e6}
+        .wallet-info strong{color:#f4fff4}
         .error{background:#fdf2f2;border-left:4px solid #e74c3c;padding:10px;margin:10px 0;color:#c0392b}
         .success{background:#d4edda;border-left:4px solid #28a745;padding:10px;margin:10px 0;color:#155724}
         
@@ -225,11 +234,95 @@
             suinsName: 'roster.sui'
         };
 
+        const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{2,}$/;
+        const HEX_STRING_RE = /^(0x)?[0-9a-fA-F]{2,}$/;
+        const BASE58_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,}$/;
+        const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
         let currentWallet = null;
         let currentNetwork = 'testnet'; // Your contracts are on testnet
         let suiClient = null;
         let rosterId = null; // Will store the shared Roster object ID
         let connectedWalletStandard = null; // Will store connected wallet standard wallet
+        const suinsResolutionCache = new Map();
+        const suinsReverseCache = new Map();
+        let currentReverseLookupToken = 0;
+
+        async function copyText(value) {
+            if (!value) return;
+            if (navigator.clipboard?.writeText) {
+                return navigator.clipboard.writeText(value);
+            }
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
+        function setupCopyButtons() {
+            const buttons = document.querySelectorAll('.copy-btn');
+            buttons.forEach(button => {
+                if (button.dataset.copySetup === 'done') return;
+                button.dataset.copySetup = 'done';
+                if (!button.dataset.copyLabel) {
+                    button.dataset.copyLabel = button.textContent.trim() || 'Copy';
+                }
+                const targetId = button.dataset.copyTarget;
+                const targetEl = targetId ? document.getElementById(targetId) : null;
+                const allowAny = button.dataset.copyAllowAny === 'true';
+                const getValue = () => {
+                    if (button.dataset.copyValue !== undefined) {
+                        return (button.dataset.copyValue || '').trim();
+                    }
+                    return targetEl ? targetEl.textContent.trim() : '';
+                };
+                if (!targetEl && button.dataset.copyValue === undefined) {
+                    button.disabled = true;
+                    return;
+                }
+                const updateState = () => {
+                    const value = getValue();
+                    button.disabled = allowAny ? !value : !HEX_ADDRESS_RE.test(value);
+                };
+                button.addEventListener('click', async () => {
+                    const value = getValue();
+                    if (!value) return;
+                    if (!allowAny && !HEX_ADDRESS_RE.test(value)) return;
+                    try {
+                        await copyText(value);
+                        button.dataset.copied = 'true';
+                        button.textContent = 'Copied ✓';
+                        setTimeout(() => {
+                            button.textContent = button.dataset.copyLabel || 'Copy';
+                            delete button.dataset.copied;
+                        }, 1200);
+                    } catch (error) {
+                        console.warn('Copy failed', error);
+                    }
+                });
+                if (targetEl) {
+                    const observer = new MutationObserver(updateState);
+                    observer.observe(targetEl, { subtree: true, childList: true, characterData: true });
+                }
+                updateState();
+            });
+        }
+
+        if (typeof window !== 'undefined') {
+            if (typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(() => setupCopyButtons(), { timeout: 500 });
+            } else {
+                window.addEventListener('DOMContentLoaded', () => setTimeout(setupCopyButtons, 0));
+            }
+        }
 
         function waitForSDKs() {
             return new Promise(resolve => {
@@ -247,6 +340,113 @@
             const line = isError ? `\n${prefix} ${message}` : `${prefix} ${message}`;
             output.textContent += `${line}\n`;
             output.scrollTop = output.scrollHeight;
+        }
+
+        function normalizeAddressForDisplay(value) {
+            if (!value && value !== 0) {
+                return { normalized: '', display: '' };
+            }
+            const str = String(value).trim();
+            if (!str) {
+                return { normalized: '', display: '' };
+            }
+            if (HEX_STRING_RE.test(str)) {
+                try {
+                    const normalizer = window.SuiSDK?.Sui?.normalizeSuiAddress;
+                    if (typeof normalizer === 'function') {
+                        const normalized = normalizer(str.startsWith('0x') ? str : `0x${str}`);
+                        return { normalized, display: normalized };
+                    }
+                } catch (_) {}
+                const lower = str.startsWith('0x') ? str.toLowerCase() : `0x${str.toLowerCase()}`;
+                return { normalized: lower, display: lower };
+            }
+            return { normalized: '', display: str };
+        }
+
+        function setCurrentWalletNameDisplay(name) {
+            try {
+                const container = document.getElementById('walletSuinsName');
+                const valueEl = document.getElementById('walletSuinsValue');
+                if (!container || !valueEl) return;
+                if (name) {
+                    valueEl.textContent = name;
+                    container.style.display = 'inline-flex';
+                } else {
+                    valueEl.textContent = '';
+                    container.style.display = 'none';
+                }
+            } catch (_) {}
+        }
+
+        async function resolveSuinsReverse(address, { silent = true } = {}) {
+            const { normalized } = normalizeAddressForDisplay(address);
+            if (!normalized) return null;
+            const cacheKey = `${currentNetwork}:${normalized}`;
+            if (suinsReverseCache.has(cacheKey)) {
+                return suinsReverseCache.get(cacheKey);
+            }
+
+            try {
+                if (!suiClient) {
+                    await initializeSuiClient();
+                }
+                if (!suiClient?.resolveNameServiceNames) {
+                    suinsReverseCache.set(cacheKey, null);
+                    return null;
+                }
+                const response = await suiClient.resolveNameServiceNames({ address: normalized, limit: 5 });
+                const names = Array.isArray(response?.data) ? response.data : [];
+                const name = names.length ? names[0] : null;
+                suinsReverseCache.set(cacheKey, name);
+                return name;
+            } catch (error) {
+                suinsReverseCache.set(cacheKey, null);
+                if (!silent) logOutput('Reverse SuiNS lookup failed: ' + error.message, true);
+                return null;
+            }
+        }
+
+        function showCurrentWalletAddress(address, { skipReverse = false } = {}) {
+            const { normalized, display } = normalizeAddressForDisplay(address);
+            const text = normalized || display;
+            try {
+                const addressEl = document.getElementById('currentAddress');
+                if (addressEl) {
+                    addressEl.textContent = text || '';
+                }
+                const copyBtn = document.querySelector('.copy-btn[data-copy-target="currentAddress"]');
+                if (copyBtn) {
+                    if (normalized) {
+                        copyBtn.dataset.copyValue = normalized;
+                        copyBtn.dataset.copyAllowAny = 'false';
+                    } else {
+                        copyBtn.dataset.copyValue = text || '';
+                        copyBtn.dataset.copyAllowAny = 'true';
+                    }
+                    const value = copyBtn.dataset.copyValue || '';
+                    const allowAny = copyBtn.dataset.copyAllowAny === 'true';
+                    copyBtn.disabled = allowAny ? !value : !HEX_ADDRESS_RE.test(value);
+                }
+            } catch (_) {}
+
+            if (!normalized) {
+                currentReverseLookupToken += 1;
+                setCurrentWalletNameDisplay(null);
+                return;
+            }
+
+            if (skipReverse) return;
+
+            const lookupToken = ++currentReverseLookupToken;
+            setCurrentWalletNameDisplay(null);
+            resolveSuinsReverse(normalized, { silent: true }).then(name => {
+                if (lookupToken !== currentReverseLookupToken) return;
+                setCurrentWalletNameDisplay(name);
+            }).catch(() => {
+                if (lookupToken !== currentReverseLookupToken) return;
+                setCurrentWalletNameDisplay(null);
+            });
         }
 
         // Populate and show account dropdown for multi-account wallets
@@ -317,7 +517,7 @@
                 }
                 // Update current account for signing and UI
                 currentWallet = { address: nextAddr, type: 'wallet_standard', wallet: connectedWalletStandard };
-                document.getElementById('currentAddress').textContent = nextAddr;
+                showCurrentWalletAddress(nextAddr);
                 await getWalletBalance();
                 logOutput(`Using selected account: ${nextAddr}`);
             } catch (e) {
@@ -369,10 +569,12 @@
 
         // Initialize Sui client
         async function initializeSuiClient() {
+            if (suiClient) return suiClient;
             if (!window.SuiSDK) throw new Error('SDK not loaded');
             const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
             suiClient = new SuiClient({ url: getFullnodeUrl(currentNetwork) });
             logOutput(`Connected to Sui ${currentNetwork} network`);
+            return suiClient;
         }
 
         // Wallet Management Functions
@@ -384,7 +586,7 @@
                 const address = keypair.toSuiAddress();
                 
                 currentWallet = { address, keypair, type: 'traditional' };
-                document.getElementById('currentAddress').textContent = address;
+                showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
                 
                 logOutput('Traditional wallet created successfully!');
@@ -409,7 +611,7 @@
                 const address = keypair.toSuiAddress();
                 
                 currentWallet = { address, keypair, type: 'traditional' };
-                document.getElementById('currentAddress').textContent = address;
+                showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
                 
                 logOutput('Wallet restored successfully!');
@@ -427,6 +629,9 @@
             }
             
             try {
+                if (!suiClient) {
+                    await initializeSuiClient();
+                }
                 const balance = await suiClient.getBalance({ owner: currentWallet.address });
                 const suiBalance = Number(balance.totalBalance) / 1_000_000_000;
                 document.getElementById('currentBalance').textContent = `${suiBalance} SUI`;
@@ -534,7 +739,7 @@
                                 };
                                 connectedWalletStandard = window.sui;
                                 
-                                document.getElementById('currentAddress').textContent = account.address;
+                                showCurrentWalletAddress(account.address);
                                 document.getElementById('walletInfo').style.display = 'block';
                                 document.getElementById('walletType').textContent = 'Sui Wallet Standard';
                                 
@@ -610,7 +815,7 @@
             };
             connectedWalletStandard = wallet;
 
-            document.getElementById('currentAddress').textContent = account.address;
+            showCurrentWalletAddress(account.address);
             document.getElementById('walletInfo').style.display = 'block';
             document.getElementById('walletType').textContent = walletName + ' Wallet';
 
@@ -792,7 +997,7 @@
                     attachWalletEvents(wallet);
                     setAccountsList(accounts);
 
-                    document.getElementById('currentAddress').textContent = account.address;
+                    showCurrentWalletAddress(account.address);
                     document.getElementById('walletInfo').style.display = 'block';
                     document.getElementById('walletType').textContent = `${wallet.name || 'Wallet Standard'}`;
 
@@ -836,7 +1041,7 @@
                         const account = accounts[0];
                         currentWallet = { address: account.address, type: 'wallet_standard', wallet };
                         connectedWalletStandard = wallet;
-                        document.getElementById('currentAddress').textContent = account.address;
+                        showCurrentWalletAddress(account.address);
                         document.getElementById('walletInfo').style.display = 'block';
                         await getWalletBalance();
                         logOutput(`Switched to account: ${account.address}`);
@@ -875,7 +1080,7 @@
                 currentWallet = { address: account.address, type: 'wallet_standard', wallet: window.sui };
                 connectedWalletStandard = window.sui;
                 setAccountsList(accounts);
-                document.getElementById('currentAddress').textContent = account.address;
+                showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
                 document.getElementById('walletType').textContent = 'Sui Wallet (window.sui)';
                 logOutput('✅ Connected via window.sui');
@@ -951,7 +1156,7 @@
                 connectedWalletStandard = phantomSui;
                 setAccountsList(accounts);
                 
-                document.getElementById('currentAddress').textContent = account.address;
+                showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
                 document.getElementById('walletType').textContent = 'Phantom (Sui)';
                 
@@ -995,7 +1200,7 @@
                 connectedWalletStandard = null;
                 
                 document.getElementById('walletInfo').style.display = 'none';
-                document.getElementById('currentAddress').textContent = '';
+                showCurrentWalletAddress('', { skipReverse: true });
                 document.getElementById('currentBalance').textContent = 'Loading...';
                 
                 logOutput('Wallet disconnected');
@@ -1014,7 +1219,7 @@
                                 setAccountsList(e.accounts);
                                 currentWallet = { address: account.address, type: 'wallet_standard', wallet };
                                 connectedWalletStandard = wallet;
-                                document.getElementById('currentAddress').textContent = account.address;
+                                showCurrentWalletAddress(account.address);
                                 document.getElementById('walletInfo').style.display = 'block';
                                 await getWalletBalance();
                                 logOutput(`Active account changed to: ${account.address}`);
@@ -1730,7 +1935,7 @@
                     wallet: null
                 };
                 
-                document.getElementById('currentAddress').textContent = address;
+                showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
                 document.getElementById('walletType').textContent = 'Manual Connection (View Only)';
                 
@@ -1848,7 +2053,10 @@
             <h3>Contract Information</h3>
             <div class="contract-card">
                 <h4>Deployed Package</h4>
-                <div class="address-display">Package ID: <span id="packageIdDisplay">Not set</span></div>
+                <div class="address-display">Package ID:
+                    <span id="packageIdDisplay" class="address-value">Not set</span>
+                    <button type="button" class="copy-btn" data-copy-target="packageIdDisplay" aria-label="Copy package ID" title="Copy package ID">Copy</button>
+                </div>
                 <div class="form-group">
                     <label for="packageIdInput">Set Package ID for current network</label>
                     <div style="display:flex; gap:8px; align-items:center;">
@@ -1877,7 +2085,7 @@
             <!-- Wallet Standard Connection (Recommended) -->
             <div style="margin-bottom: 25px;">
                 <button onclick="connectWalletStandard()" class="primary-btn" style="background: linear-gradient(145deg, #4CAF50, #45a049); width: 100%; margin-bottom: 10px;">
-                    🔎 Discover Sui Wallets (Wallet Standard)
+                    🔎 Connect Wallet
                 </button>
                 <p style="font-size: 12px; color: #c3d5e8; text-align: center; margin: 0;">
                     Select a Sui-capable wallet to connect
@@ -1917,9 +2125,17 @@
             </details>
             
             <div id="walletInfo" class="wallet-info" style="display: none;">
-                <h4>Connected Wallet</h4>
+                <h4 class="wallet-heading">Connected Wallet
+                    <span id="walletSuinsName" class="wallet-suins" style="display:none;">
+                        <span id="walletSuinsValue" class="address-value"></span>
+                        <button type="button" class="copy-btn" data-copy-target="walletSuinsValue" data-copy-allow-any="true" aria-label="Copy SuiNS name" title="Copy SuiNS name">Copy</button>
+                    </span>
+                </h4>
                 <p><strong>Type:</strong> <span id="walletType">Unknown</span></p>
-                <p><strong>Address:</strong> <span id="currentAddress"></span></p>
+                <p class="address-row"><strong>Address:</strong>
+                    <span id="currentAddress" class="address-value"></span>
+                    <button type="button" class="copy-btn" data-copy-target="currentAddress" aria-label="Copy address" title="Copy address">Copy</button>
+                </p>
                 <p><strong>Balance:</strong> <span id="currentBalance">Loading...</span></p>
                 <div id="accountSelector" class="form-group" style="display: none; align-items: center; gap: 6px;">
                     <label for="accountSelect" style="font-size: 12px; color: #cfe4f7;">Account:</label>
@@ -1937,7 +2153,10 @@
             <h3>Roster Management</h3>
             <p>The roster tracks wallet memberships across the system.</p>
             <div class="form-group">
-                <div class="address-display">Roster ID: <span id="rosterId">Not found</span></div>
+                <div class="address-display">Roster ID:
+                    <span id="rosterId" class="address-value">Not found</span>
+                    <button type="button" class="copy-btn" data-copy-target="rosterId" aria-label="Copy roster ID" title="Copy roster ID">Copy</button>
+                </div>
             </div>
             <button onclick="initRoster()">Initialize Roster</button>
             <button onclick="findRoster()">Find Roster</button>
@@ -1961,7 +2180,10 @@
 
         <div id="smartWalletOperations" class="section" style="display: none;">
             <h3>Smart Wallet Operations</h3>
-            <div class="address-display">Selected Wallet: <span id="selectedWalletId">None</span></div>
+            <div class="address-display">Selected Wallet:
+                <span id="selectedWalletId" class="address-value">None</span>
+                <button type="button" class="copy-btn" data-copy-target="selectedWalletId" aria-label="Copy selected wallet ID" title="Copy selected wallet ID">Copy</button>
+            </div>
             
             <div class="contract-card">
                 <h4>Add Member</h4>

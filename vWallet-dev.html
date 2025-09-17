@@ -101,10 +101,17 @@
         .primary-btn{border-radius:12px;padding:15px 25px;font-size:16px;font-weight:600;box-shadow:0 6px 15px rgba(0,0,0,.25);border:1px solid rgba(139,69,19,.5);cursor:pointer;transition:all .3s ease;background:linear-gradient(145deg,#722F37,#8B4513)}
         .primary-btn:hover{transform:translateY(-3px);box-shadow:0 10px 25px rgba(0,0,0,.35);background:linear-gradient(145deg,#8B4513,#A0522D)}
         input[type="text"],input[type="number"],input[type="password"]{padding:12px;border:1px solid rgba(139,69,19,.4);border-radius:8px;margin:5px;background:rgba(60,20,20,.3);color:#f4f1ef;backdrop-filter:blur(5px);font-size:14px}
+        .copy-btn{margin:0 0 0 8px;padding:6px 10px;font-size:12px;line-height:1;border-radius:6px;background:rgba(139,69,19,.6);border:1px solid rgba(139,69,19,.5);box-shadow:none}
+        .copy-btn:hover{background:rgba(160,82,45,.85)}
+        .copy-btn:disabled{opacity:.6;cursor:not-allowed}
+        .copy-btn[data-copied="true"]{background:#2e7d32;border-color:#2e7d32;color:#fff}
+        .address-row,.address-display{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .address-value{font-family:'Courier New',monospace;font-size:13px;word-break:break-all}
         input[type="text"]:focus,input[type="number"]:focus,input[type="password"]:focus{outline:none;border-color:#A0522D;box-shadow:0 0 10px rgba(160,82,45,.3)}
         input::placeholder{color:rgba(244,241,239,.6)}
         #output{background:#2c3e50;color:#ecf0f1;padding:15px;border-radius:5px;font-family:'Courier New',monospace;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;margin-top:20px}
-        .wallet-info{background:#e8f5e8;border-left:4px solid #27ae60;padding:10px;margin:10px 0}
+        .wallet-info{background:linear-gradient(145deg,#1f3b2f,#254836);border-left:4px solid #27ae60;padding:12px;margin:12px 0;border-radius:10px;color:#e6f2e6}
+        .wallet-info strong{color:#f4fff4}
         .error{background:#fdf2f2;border-left:4px solid #e74c3c;padding:10px;margin:10px 0;color:#c0392b}
         
         .compatibility-dialog,.browser-warning,.device-warning{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
@@ -177,11 +184,229 @@
     </script>
     
     <script type="module">
+        const HEX_ADDRESS_RE=/^0x[0-9a-fA-F]{2,}$/;
         let currentWallet=null,currentNetwork='devnet';
+        const suinsResolutionCache = new Map();
+        const suiClientCache = new Map();
+        const suiClientPromiseCache = new Map();
+        let bootstrapPromise = null;
+        let mainContentRevealed = false;
+        async function copyText(value){
+            if(!value) return;
+            if(navigator.clipboard&&navigator.clipboard.writeText){
+                return navigator.clipboard.writeText(value);
+            }
+            const textarea=document.createElement('textarea');
+            textarea.value=value;
+            textarea.style.position='fixed';
+            textarea.style.opacity='0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try{document.execCommand('copy');}
+            finally{document.body.removeChild(textarea);}
+        }
+        function setupCopyButtons(){
+            const buttons=document.querySelectorAll('.copy-btn');
+            buttons.forEach(button=>{
+                if(button.dataset.copySetup==='done') return;
+                button.dataset.copySetup='done';
+                if(!button.dataset.copyLabel){button.dataset.copyLabel=button.textContent.trim();}
+                const targetId=button.dataset.copyTarget;
+                const targetEl=targetId?document.getElementById(targetId):null;
+                const getValue=()=>{
+                    if(button.dataset.copyValue!==undefined){return (button.dataset.copyValue||'').trim();}
+                    return targetEl?targetEl.textContent.trim():'';
+                };
+                if(!targetEl&&button.dataset.copyValue===undefined){button.disabled=true;return;}
+                const updateState=()=>{button.disabled=!HEX_ADDRESS_RE.test(getValue());};
+                button.addEventListener('click',async()=>{
+                    const value=getValue();
+                    if(!HEX_ADDRESS_RE.test(value)) return;
+                    try{await copyText(value);button.dataset.copied='true';button.textContent='Copied ✓';setTimeout(()=>{button.textContent=button.dataset.copyLabel||'Copy';delete button.dataset.copied;},1200);}catch(e){console.warn('Copy failed',e);}
+                });
+                if(targetEl){
+                    const observer=new MutationObserver(()=>{
+                        if(button.dataset.copyValue===undefined){updateState();}
+                    });
+                    observer.observe(targetEl,{subtree:true,characterData:true,childList:true});
+                }
+                updateState();
+            });
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof window.requestIdleCallback === 'function') {
+                window.requestIdleCallback(() => setupCopyButtons(), { timeout: 500 });
+            } else {
+                setTimeout(() => setupCopyButtons(), 0);
+            }
+        });
         function waitForSDKs(){return new Promise(r=>{window.SuiSDK?r():setTimeout(()=>waitForSDKs().then(r),100)})}
         function logOutput(e,t=!1){const n=document.getElementById('output'),o=t?'[ERROR]':'[INFO]',r=t?`\n${o} ${e}`:`${o} ${e}`;n.textContent+=`${r}\n`;n.scrollTop=n.scrollHeight}
-        
-        
+
+        function normalizeHexIdentifier(value) {
+            if (!value) return value;
+            let normalized = value.trim().toLowerCase();
+            if (!normalized.startsWith('0x')) normalized = `0x${normalized}`;
+            try {
+                const fn = window.SuiSDK?.Sui?.normalizeSuiAddress;
+                if (typeof fn === 'function') {
+                    return fn(normalized);
+                }
+            } catch (_) {}
+            return normalized;
+        }
+
+        function isLikelySuinsName(value) {
+            return typeof value === 'string' && value.includes('.') && !HEX_ADDRESS_RE.test(value.trim());
+        }
+
+        function getSuinsNetworkName(net) {
+            return net === 'mainnet' ? 'mainnet' : 'testnet';
+        }
+
+        async function getSuiClient(network = currentNetwork, { force = false } = {}) {
+            const netKey = network || currentNetwork;
+            if (force) {
+                suiClientCache.delete(netKey);
+                suiClientPromiseCache.delete(netKey);
+            }
+            if (suiClientCache.has(netKey)) return suiClientCache.get(netKey);
+            if (suiClientPromiseCache.has(netKey)) return suiClientPromiseCache.get(netKey);
+
+            const promise = (async () => {
+                await waitForSDKs();
+                if (!window.SuiSDK?.Sui) throw new Error('Sui SDK not loaded');
+                const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
+                const client = new SuiClient({ url: getFullnodeUrl(netKey) });
+                suiClientCache.set(netKey, client);
+                return client;
+            })().catch(error => {
+                suiClientPromiseCache.delete(netKey);
+                throw error;
+            });
+
+            suiClientPromiseCache.set(netKey, promise);
+            return promise;
+        }
+
+        async function resolveSuinsRecord(name, { recordKey, network } = {}) {
+            const trimmed = (name || '').trim();
+            if (!trimmed) return null;
+            const netAlias = getSuinsNetworkName(network || currentNetwork);
+            const key = recordKey || 'target_address';
+            const cacheKey = `${trimmed.toLowerCase()}::${netAlias}::${key}`;
+            if (suinsResolutionCache.has(cacheKey)) return suinsResolutionCache.get(cacheKey);
+
+            await waitForSDKs();
+            const suinsNs = window.SuiSDK?.SuiNS;
+            if (!suinsNs || !suinsNs.SuinsClient) throw new Error('SuiNS client unavailable in current SDK bundle');
+
+            const clientNetwork = network || netAlias;
+            const client = await getSuiClient(clientNetwork);
+            const { SuinsClient } = suinsNs;
+            const suins = new SuinsClient({ client, network: netAlias });
+            const record = await suins.getNameRecord(trimmed);
+            const data = record && record.data ? record.data : {};
+            const candidates = [];
+            if (recordKey) candidates.push(data[recordKey]);
+            candidates.push(
+                data.target_address,
+                data.targetAddress,
+                data.address,
+                data.owner,
+                data.owner_address,
+                record?.ownerAddress,
+                record?.target_address
+            );
+
+            const resolved = candidates.find(val => typeof val === 'string' && HEX_ADDRESS_RE.test(val.trim()));
+            const result = resolved ? { resolved: normalizeHexIdentifier(resolved), record } : { resolved: null, record };
+            suinsResolutionCache.set(cacheKey, result);
+            return result;
+        }
+
+        async function resolveAddressInput(rawValue, { label = 'address', recordKey, allowEmpty = false, silent = false } = {}) {
+            const value = (rawValue || '').trim();
+            if (!value) {
+                if (allowEmpty) {
+                    return { ok: true, value: '', source: 'empty', input: value };
+                }
+                return { ok: false, message: `${label} is required`, input: value };
+            }
+
+            if (HEX_ADDRESS_RE.test(value)) {
+                const normalized = normalizeHexIdentifier(value);
+                return { ok: true, value: normalized, source: 'direct', input: value };
+            }
+
+            if (!isLikelySuinsName(value)) {
+                return { ok: false, message: `${label} must be a 0x... identifier or valid SuiNS name`, input: value };
+            }
+
+            try {
+                const record = await resolveSuinsRecord(value, { recordKey });
+                if (record && record.resolved) {
+                    if (!silent) logOutput(`Resolved ${label} ${value} ➜ ${record.resolved}`);
+                    return { ok: true, value: record.resolved, source: 'suins', input: value, record: record.record };
+                }
+                return { ok: false, message: `SuiNS name ${value} does not include a ${recordKey || 'target address'} record`, input: value };
+            } catch (error) {
+                if (!silent) logOutput(`SuiNS lookup failed for ${value}: ${error.message}`, true);
+                return { ok: false, message: `Failed to resolve ${value}: ${error.message}`, input: value, error };
+            }
+        }
+
+        function ensureAppBootstrap(force = false) {
+            if (force) {
+                bootstrapPromise = null;
+                suinsResolutionCache.clear();
+                suiClientCache.clear();
+                suiClientPromiseCache.clear();
+            }
+
+            if (!bootstrapPromise) {
+                bootstrapPromise = (async () => {
+                    await waitForSDKs();
+                    try { checkZkLoginCache(); } catch (error) { console.warn('zkLogin cache check failed', error); }
+                    try { checkPasskeyCache(); } catch (error) { console.warn('Passkey cache check failed', error); }
+                    try { await getSuiClient(currentNetwork, { force }); } catch (error) { console.warn('RPC warmup warning', error); }
+                    return true;
+                })().catch(error => {
+                    bootstrapPromise = null;
+                    logOutput('Bootstrap failed: ' + error.message, true);
+                    throw error;
+                });
+            }
+
+            return bootstrapPromise;
+        }
+
+        function revealMainContent(loadingScreen, mainContent) {
+            if (mainContentRevealed) return;
+            mainContentRevealed = true;
+
+            if (mainContent) {
+                mainContent.style.display = 'block';
+                requestAnimationFrame(() => {
+                    const allSections = document.querySelectorAll('.section');
+                    allSections.forEach(section => {
+                        section.style.display = 'block';
+                        section.classList.add('visible');
+                    });
+                    mainContent.classList.add('loaded');
+                });
+            }
+
+            if (loadingScreen) {
+                loadingScreen.style.opacity = '0';
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 140);
+            }
+        }
+
+
         async function createNewWallet(){try{logOutput('Creating new wallet...');const e=createWallet();currentWallet=e;document.getElementById('currentAddress').textContent=e.address;document.getElementById('walletInfo').style.display='block';document.getElementById('zkLoginInfo').style.display='none';logOutput('Wallet created successfully!');logOutput(`Address: ${e.address}`);await getWalletBalance()}catch(e){logOutput('Error creating wallet: '+e.message,!0)}}
         
         async function restoreExistingWallet(){const e=document.getElementById('privateKeyInput').value.trim();if(!e){logOutput('Please enter a private key',!0);return}try{logOutput('Restoring wallet from private key...');const t=restoreWallet(e);currentWallet=t;document.getElementById('currentAddress').textContent=t.address;document.getElementById('walletInfo').style.display='block';document.getElementById('zkLoginInfo').style.display='none';logOutput('Wallet restored successfully!');logOutput(`Address: ${t.address}`);await getWalletBalance()}catch(e){logOutput('Error restoring wallet: '+e.message,!0)}}
@@ -226,16 +451,26 @@
                 return;
             }
             
-            const toAddress = document.getElementById('toAddress').value.trim();
+            const toAddressInput = document.getElementById('toAddress').value.trim();
             const amount = parseFloat(document.getElementById('amount').value);
             
-            if (!toAddress || !amount || amount <= 0) {
+            if (!toAddressInput || !amount || amount <= 0) {
                 logOutput('Please enter valid recipient address and amount', true);
                 return;
             }
             
             try {
-                logOutput(`Sending ${amount} SUI to ${toAddress}...`);
+                const resolvedRecipient = await resolveAddressInput(toAddressInput, { label: 'Recipient address' });
+                if (!resolvedRecipient.ok) {
+                    logOutput(resolvedRecipient.message, true);
+                    return;
+                }
+
+                const toAddress = resolvedRecipient.value;
+                logOutput(`Sending ${amount} SUI to ${resolvedRecipient.input || toAddress}...`);
+                if (resolvedRecipient.source === 'suins') {
+                    logOutput(`Resolved recipient ${resolvedRecipient.input} ➜ ${toAddress}`);
+                }
                 
                 let result;
                 if (currentWallet.type === 'passkey') {
@@ -263,10 +498,13 @@
             const networkSelect = document.getElementById('networkSelect');
             currentNetwork = networkSelect.value;
             logOutput(`Network changed to: ${currentNetwork}`);
-            
-            if (currentWallet) {
-                getWalletBalance();
-            }
+            ensureAppBootstrap(true).then(() => {
+                if (currentWallet) {
+                    getWalletBalance();
+                }
+            }).catch(error => {
+                logOutput(`Failed to switch client: ${error.message}`, true);
+            });
         }
         
         function clearOutput() {
@@ -1320,55 +1558,32 @@
         
         // App initialization and loading management
         function initializeApp() {
-            // Show loading screen immediately
             const loadingScreen = document.getElementById('loading-screen');
             const mainContent = document.getElementById('main-content');
-            
-            if (loadingScreen) loadingScreen.style.display = 'block';
-            if (mainContent) mainContent.style.display = 'none';
-            
-            // Wait for SDKs and then show main app
-            waitForSDKs().then(() => {
-                checkZkLoginCache();
-                checkPasskeyCache();
-                
-                // Transition from loading to main content
-                setTimeout(() => {
-                    if (loadingScreen) {
-                        // Start fade out of loading screen
-                        loadingScreen.style.opacity = '0';
-                        // After fade completes, hide loading screen and show content
-                        setTimeout(() => {
-                            loadingScreen.style.display = 'none';
-                            if (mainContent) {
-                                mainContent.style.display = 'block';
-                                // Delay for sections to appear (300ms after main content)
-                                setTimeout(() => {
-                                    // Show sections with fade-in animation
-                                    const allSections = document.querySelectorAll('.section');
-                                    allSections.forEach(section => {
-                                        section.style.display = 'block';
-                                        section.classList.add('visible'); // Trigger fade-in
-                                    });
-                                    // Main content is already loaded
-                                    mainContent.classList.add('loaded');
-                                }, 300);
-                            }
-                        }, 100); // Very fast loading screen fade (100ms)
-                    } else if (mainContent) {
-                        // Fallback if no loading screen exists
+
+            if (loadingScreen) {
+                loadingScreen.style.display = 'block';
+                loadingScreen.style.opacity = '1';
+            }
+            if (mainContent) {
+                mainContent.style.display = 'none';
+                requestAnimationFrame(() => {
+                    if (!mainContentRevealed) {
                         mainContent.style.display = 'block';
-                        // Show sections with fade-in
                         const allSections = document.querySelectorAll('.section');
-                        allSections.forEach(section => {
-                            section.style.display = 'block';
-                            section.classList.add('visible'); // Trigger fade-in
-                        });
-                        setTimeout(() => {
-                            mainContent.classList.add('loaded');
-                        }, 50);
+                        allSections.forEach(section => { section.style.display = 'block'; });
                     }
-                }, 200); // Main content visible at 200ms
+                });
+            }
+
+            const bootstrap = ensureAppBootstrap();
+            const revealFallback = setTimeout(() => revealMainContent(loadingScreen, mainContent), 160);
+
+            bootstrap.then(() => {
+                clearTimeout(revealFallback);
+                revealMainContent(loadingScreen, mainContent);
+            }).catch(() => {
+                revealMainContent(loadingScreen, mainContent);
             });
         }
         
@@ -1557,7 +1772,10 @@
         
         <div id="walletInfo" class="wallet-info" style="display: none;">
             <h4>Current Wallet</h4>
-            <p><strong>Address:</strong> <span id="currentAddress"></span></p>
+            <p class="address-row"><strong>Address:</strong>
+                <span id="currentAddress" class="address-value"></span>
+                <button type="button" class="copy-btn" data-copy-target="currentAddress" aria-label="Copy address" title="Copy address">Copy</button>
+            </p>
             <p><strong>Balance:</strong> <span id="currentBalance">Loading...</span></p>
             <div id="zkLoginInfo" style="display: none;">
                 <p><strong>Type:</strong> zkLogin (Google OAuth)</p>
