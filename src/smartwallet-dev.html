@@ -720,19 +720,20 @@
                             
                             // Filter for Sui-compatible wallets only
                             const suiWallets = allWallets.filter(wallet => {
-                                // Check for Sui-specific features
-                                const hasSuiConnect = wallet.features && (
-                                    wallet.features['sui:connect'] || 
-                                    wallet.features['sui:signAndExecuteTransaction'] ||
-                                    wallet.features['standard:connect']
-                                );
-                                
-                                // Check for Sui chains
-                                const supportsSui = wallet.chains && wallet.chains.some(chain => 
+                                // Check for Sui chains first (most reliable)
+                                const supportsSui = wallet.chains && wallet.chains.some(chain =>
                                     chain.includes('sui:') || chain === 'sui'
                                 );
-                                
-                                return hasSuiConnect || supportsSui;
+
+                                // Check for Sui-specific features
+                                const hasSuiConnect = wallet.features && (
+                                    wallet.features['sui:connect'] ||
+                                    wallet.features['sui:signAndExecuteTransaction']
+                                );
+
+                                // Only include if it explicitly supports Sui chains OR has Sui-specific features
+                                // Exclude wallets that only have generic 'standard:connect' without Sui chain support
+                                return supportsSui || hasSuiConnect;
                             });
                             
                                         openWalletModal(suiWallets);
