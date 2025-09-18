@@ -112,6 +112,17 @@
         input[type="text"]:focus,input[type="number"]:focus,input[type="password"]:focus,textarea:focus{outline:none;border-color:#5A9BD4;box-shadow:0 0 10px rgba(90,155,212,.3)}
         input::placeholder,textarea::placeholder{color:rgba(244,241,239,.6)}
         #output{background:#2c3e50;color:#ecf0f1;padding:15px;border-radius:5px;font-family:'Courier New',monospace;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;margin-top:20px}
+        .wallet-connection-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px}
+        .wallet-connection-header h3{margin:0}
+        .connect-wallet-inline{padding:8px 16px;font-size:14px;background:linear-gradient(145deg,#4CAF50,#45a049);box-shadow:0 4px 12px rgba(0,0,0,.25);}
+        .connect-wallet-inline:hover{background:linear-gradient(145deg,#45a049,#3f8f44)}
+        .connect-wallet-inline.disconnect{background:#dc3545;box-shadow:0 4px 12px rgba(0,0,0,.25);border:1px solid rgba(220,53,69,.6);}
+        .connect-wallet-inline.disconnect:hover{background:#c82333}
+        .balance-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .balance-value{font-family:'Courier New',monospace;}
+        .balance-refresh{margin:0;padding:6px 10px;font-size:12px;line-height:1;border-radius:6px;background:rgba(69,139,189,.6);border:1px solid rgba(69,139,189,.5);color:#f4f1ef;cursor:pointer;transition:background .2s ease;box-shadow:none}
+        .balance-refresh:hover{background:rgba(90,155,212,.85)}
+        @media (max-width:600px){.wallet-connection-header{flex-direction:column;align-items:stretch}.wallet-connection-header h3{text-align:left}.connect-wallet-inline{width:100%}}
         .wallet-info{background:linear-gradient(145deg,#1f3b2f,#254836);border-left:4px solid #27ae60;padding:12px;margin:12px 0;border-radius:10px;color:#e6f2e6}
         .wallet-info strong{color:#f4fff4}
         .error{background:#fdf2f2;border-left:4px solid #e74c3c;padding:10px;margin:10px 0;color:#c0392b}
@@ -148,6 +159,11 @@
             align-items: center;
             justify-content: space-between;
         }
+        details.section-toggle summary .summary-status {
+            font-size: 12px;
+            color: #8fb9df;
+            font-weight: 500;
+        }
         details.section-toggle summary::-webkit-details-marker { display: none; }
         details.section-toggle summary::after {
             content: '▾';
@@ -161,6 +177,17 @@
         details.section-toggle[open] summary {
             border-bottom: 1px solid rgba(69,139,189,.25);
             background: rgba(69,139,189,.12);
+        }
+        details.section-toggle[data-connected="true"] summary {
+            background: rgba(39, 174, 96, .12);
+            border-bottom-color: rgba(39, 174, 96, .25);
+            color: #bff5d6;
+        }
+        details.section-toggle[data-connected="true"] summary::after {
+            color: #7edc8f;
+        }
+        details.section-toggle[data-connected="true"] summary .summary-status {
+            color: #7edc8f;
         }
         details.section-toggle .contract-card {
             margin: 0;
@@ -3930,15 +3957,114 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
         const HEX_STRING_RE = /^(0x)?[0-9a-fA-F]{2,}$/;
         const BASE58_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,}$/;
         const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+        const SUINS_NAME_RE = /^[a-z0-9]+(?:[-.][a-z0-9]+)*\.sui$/i;
 
         let currentWallet = null;
         let currentNetwork = 'testnet'; // Your contracts are on testnet
         let suiClient = null;
         let rosterId = null; // Will store the shared Roster object ID
         let connectedWalletStandard = null; // Will store connected wallet standard wallet
+        let walletControlsCollapsed = false;
         const suinsResolutionCache = new Map();
         const suinsReverseCache = new Map();
         let currentReverseLookupToken = 0;
+
+        function updateWalletConnectionControls(isConnected) {
+            try {
+                const controls = document.getElementById('walletConnectionControls');
+                const statusEl = document.getElementById('walletConnectionStatus');
+                const infoPanel = document.getElementById('walletInfo');
+                const actionBtn = document.getElementById('walletHeaderAction');
+                if (statusEl) {
+                    let statusText = isConnected ? 'Connected' : 'Not connected';
+                    if (isConnected && currentWallet?.type === 'view_only') {
+                        statusText = 'View-only connected';
+                    }
+                    statusEl.textContent = statusText;
+                }
+                if (actionBtn) {
+                    if (isConnected) {
+                        actionBtn.textContent = 'Disconnect';
+                        actionBtn.classList.add('disconnect');
+                        actionBtn.onclick = () => disconnectWallet();
+                    } else {
+                        actionBtn.textContent = 'Connect';
+                        actionBtn.classList.remove('disconnect');
+                        actionBtn.onclick = () => connectWalletStandard();
+                    }
+                }
+                if (!controls) {
+                    return;
+                }
+                controls.dataset.connected = isConnected ? 'true' : 'false';
+                if (isConnected) {
+                    if (!walletControlsCollapsed) {
+                        controls.open = false;
+                        walletControlsCollapsed = true;
+                    }
+                    controls.style.display = 'none';
+                    if (infoPanel) infoPanel.style.display = 'block';
+                } else {
+                    controls.open = true;
+                    walletControlsCollapsed = false;
+                    controls.style.display = '';
+                    if (infoPanel) infoPanel.style.display = 'none';
+                }
+            } catch (_) {}
+        }
+
+        async function resolveViewOnlyTarget(value) {
+            const raw = (value || '').trim();
+            if (!raw) {
+                throw new Error('Enter a Sui address (0x...) or SuiNS name (example.sui).');
+            }
+
+            const { normalized } = normalizeAddressForDisplay(raw);
+            if (normalized && HEX_ADDRESS_RE.test(normalized)) {
+                return { address: normalized, source: 'address' };
+            }
+
+            const lower = raw.toLowerCase();
+            if (!SUINS_NAME_RE.test(lower)) {
+                throw new Error('Invalid input. Provide a valid Sui address (0x...) or a SuiNS name ending in .sui');
+            }
+
+            if (!suiClient) {
+                await initializeSuiClient();
+            }
+
+            if (!suiClient || typeof suiClient.resolveNameServiceAddress !== 'function') {
+                throw new Error('SuiNS resolution is not available in this SDK build.');
+            }
+
+            try {
+                const result = await suiClient.resolveNameServiceAddress({ name: lower });
+                let resolved = '';
+                if (typeof result === 'string') {
+                    resolved = result;
+                } else if (result && typeof result === 'object') {
+                    if (typeof result.address === 'string') resolved = result.address;
+                    else if (typeof result.Address === 'string') resolved = result.Address;
+                    else if (typeof result.value === 'string') resolved = result.value;
+                    else if (result.data) {
+                        if (typeof result.data === 'string') {
+                            resolved = result.data;
+                        } else if (typeof result.data === 'object' && typeof result.data.address === 'string') {
+                            resolved = result.data.address;
+                        }
+                    }
+                }
+
+                const { normalized: resolvedAddress } = normalizeAddressForDisplay(resolved);
+                if (!resolvedAddress || !HEX_ADDRESS_RE.test(resolvedAddress)) {
+                    throw new Error(`No Sui address found for ${raw}`);
+                }
+
+                return { address: resolvedAddress, source: 'suins', name: lower };
+            } catch (error) {
+                throw new Error(`Failed to resolve ${raw}: ${error.message}`);
+            }
+        }
 
         async function copyText(value) {
             if (!value) return;
@@ -4280,6 +4406,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 currentWallet = { address, keypair, type: 'traditional' };
                 showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
                 
                 logOutput('Traditional wallet created successfully!');
                 logOutput(`Address: ${address}`);
@@ -4305,6 +4432,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 currentWallet = { address, keypair, type: 'traditional' };
                 showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
                 
                 logOutput('Wallet restored successfully!');
                 logOutput(`Address: ${address}`);
@@ -4434,6 +4562,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                                 
                                 showCurrentWalletAddress(account.address);
                                 document.getElementById('walletInfo').style.display = 'block';
+                                updateWalletConnectionControls(true);
                                 document.getElementById('walletType').textContent = 'Sui Wallet Standard';
                                 
                                 logOutput('✅ Successfully connected via window.sui!');
@@ -4510,6 +4639,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
 
             showCurrentWalletAddress(account.address);
             document.getElementById('walletInfo').style.display = 'block';
+            updateWalletConnectionControls(true);
             document.getElementById('walletType').textContent = walletName + ' Wallet';
 
             logOutput(`✅ Connected to ${walletName}!`);
@@ -4692,6 +4822,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
 
                     showCurrentWalletAddress(account.address);
                     document.getElementById('walletInfo').style.display = 'block';
+                    updateWalletConnectionControls(true);
                     document.getElementById('walletType').textContent = `${wallet.name || 'Wallet Standard'}`;
 
                     logOutput(`Connected to ${wallet.name || 'wallet'}!`);
@@ -4736,6 +4867,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                         connectedWalletStandard = wallet;
                         showCurrentWalletAddress(account.address);
                         document.getElementById('walletInfo').style.display = 'block';
+                        updateWalletConnectionControls(true);
                         await getWalletBalance();
                         logOutput(`Switched to account: ${account.address}`);
                     } else {
@@ -4775,6 +4907,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 setAccountsList(accounts);
                 showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
                 document.getElementById('walletType').textContent = 'Sui Wallet (window.sui)';
                 logOutput('✅ Connected via window.sui');
                 await getWalletBalance();
@@ -4851,6 +4984,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 
                 showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
                 document.getElementById('walletType').textContent = 'Phantom (Sui)';
                 
                 logOutput('✅ Connected via Phantom (Sui)');
@@ -4893,6 +5027,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 connectedWalletStandard = null;
                 
                 document.getElementById('walletInfo').style.display = 'none';
+                updateWalletConnectionControls(false);
                 showCurrentWalletAddress('', { skipReverse: true });
                 document.getElementById('currentBalance').textContent = 'Loading...';
                 
@@ -4914,6 +5049,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                                 connectedWalletStandard = wallet;
                                 showCurrentWalletAddress(account.address);
                                 document.getElementById('walletInfo').style.display = 'block';
+                                updateWalletConnectionControls(true);
                                 await getWalletBalance();
                                 logOutput(`Active account changed to: ${account.address}`);
                             }
@@ -5506,138 +5642,38 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             document.getElementById('output').textContent = '';
         }
 
-        // Make functions available globally
-        // Simple debug function to check for wallet extensions
-        function debugWalletDetection() {
-            logOutput('=== Wallet Detection Debug ===');
-            
-            // Check key wallet properties
-            const allProps = Object.keys(window);
-            logOutput(`Total window properties: ${allProps.length}`);
-            
-            // More comprehensive wallet property search
-            const walletRelated = allProps.filter(key => {
-                const k = key.toLowerCase();
-                return k.includes('sui') || k.includes('wallet') || k.includes('ethos') || 
-                       k.includes('slush') || k.includes('martian') || k.includes('okx') ||
-                       k.includes('coin98') || k.includes('bitkeep') || k.includes('onekey') ||
-                       k.includes('phantom') || k.includes('solflare') || k.includes('exodus') ||
-                       k.includes('keplr') || k.includes('metamask') || k.includes('trustwallet') ||
-                       k.includes('binance') || k.includes('coinbase');
-            });
-            
-            logOutput('All wallet-related properties found: ' + (walletRelated.length ? walletRelated.join(', ') : 'none'));
-            
-            // Check specific common wallet injection points
-            const walletsToCheck = [
-                'sui', 'suiWallet', 'slush', 'ethos', 'martian', 'spacecy',
-                'ethereum', 'solana', 'keplr', 'cosmos', 'phantom', 'okxwallet'
-            ];
-            
-            walletsToCheck.forEach(walletName => {
-                const wallet = window[walletName];
-                if (wallet) {
-                    logOutput(`✅ ${walletName} found!`);
-                    if (typeof wallet === 'object') {
-                        const methods = Object.getOwnPropertyNames(wallet);
-                        const props = Object.keys(wallet);
-                        logOutput(`  Methods: ${methods.slice(0, 10).join(', ')}${methods.length > 10 ? '...' : ''}`);
-                        logOutput(`  Properties: ${props.slice(0, 10).join(', ')}${props.length > 10 ? '...' : ''}`);
-                        
-                        // Check for Sui-specific properties
-                        if (wallet.connect) logOutput(`  Has connect method: true`);
-                        if (wallet.getAccounts) logOutput(`  Has getAccounts method: true`);
-                        if (wallet.signAndExecuteTransaction) logOutput(`  Has signAndExecuteTransaction method: true`);
-                        if (wallet.features) {
-                            logOutput(`  Has features object: true`);
-                            logOutput(`  Features: ${Object.keys(wallet.features).join(', ')}`);
-                        }
-                    }
-                } else {
-                    logOutput(`❌ ${walletName} not found`);
-                }
-            });
-            
-            // Check for modern wallet standard implementations
-            if (window.navigator) {
-                // Check for wallet standard
-                if (window.navigator.wallets) {
-                    logOutput('✅ navigator.wallets found!');
-                    try {
-                        if (typeof window.navigator.wallets.getWallets === 'function') {
-                            const wallets = window.navigator.wallets.getWallets();
-                            logOutput(`navigator.wallets count: ${wallets.length}`);
-                            wallets.forEach((wallet, index) => {
-                            logOutput(`Wallet ${index}: ${wallet.name || 'Unknown'} - chains: ${((wallet.chains && wallet.chains.join) ? wallet.chains.join(', ') : 'Unknown')}`);
-                            });
-                        }
-                    } catch (e) {
-                        logOutput('Error accessing navigator.wallets: ' + e.message, true);
-                    }
-                } else {
-                    logOutput('❌ navigator.wallets not found');
-                }
-                
-                // Check for other navigator wallet APIs
-                if (window.navigator.credentials) {
-                    logOutput('✅ navigator.credentials found (WebAuthn support)');
-                }
-            }
-            
-            // Check browser extension APIs
-            if (typeof chrome !== 'undefined' && chrome.runtime) {
-                logOutput('✅ Chrome extension API detected');
-            } else if (typeof browser !== 'undefined' && browser.runtime) {
-                logOutput('✅ Firefox extension API detected');
-            }
-            
-            // Check for injected provider detection events
-            logOutput('Checking for wallet injection events...');
-            const eventTypes = [
-                'wallet-standard:app-ready',
-                'sui:wallet-ready', 
-                'ethereum#initialized',
-                'coinbase#initialized'
-            ];
-            
-            eventTypes.forEach(eventType => {
-                window.addEventListener(eventType, (event) => {
-                    logOutput(`🎉 Event detected: ${eventType}`);
-                }, { once: true });
-            });
-            
-            // Dispatch events to trigger wallet detection
-            setTimeout(() => {
-                window.dispatchEvent(new Event('wallet-standard:app-ready'));
-            }, 100);
-            
-            logOutput('=== End Debug ===');
-        }
-        
-        // Manual connection function for direct wallet access
-        async function manualConnect(address) {
-            if (!address) {
-                logOutput('Usage: manualConnect("0x1234...your wallet address")', true);
-                return;
-            }
-            
+        // View-only connection function that accepts Sui addresses or SuiNS names
+        async function connectViewOnly(target) {
             try {
-                currentWallet = { 
-                    address: address, 
-                    type: 'manual',
+                const { address, source, name } = await resolveViewOnlyTarget(target);
+
+                currentWallet = {
+                    address,
+                    type: 'view_only',
                     wallet: null
                 };
-                
+                connectedWalletStandard = null;
+
                 showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
-                document.getElementById('walletType').textContent = 'Manual Connection (View Only)';
-                
-                logOutput(`Manually connected to: ${address}`);
+                updateWalletConnectionControls(true);
+                document.getElementById('walletType').textContent = source === 'suins' ? 'View Only (SuiNS)' : 'View Only (Address)';
+
+                if (source === 'suins' && name) {
+                    logOutput(`SuiNS ${name} resolved to: ${address}`);
+                } else {
+                    logOutput(`Viewing address: ${address}`);
+                }
                 logOutput('Note: This is view-only. You cannot sign transactions without a proper wallet connection.');
+
+                try {
+                    const inputEl = document.getElementById('viewOnlyTarget');
+                    if (inputEl) inputEl.value = ''; // clear after successful connect
+                } catch (_) {}
+
                 await getWalletBalance();
-                
             } catch (error) {
-                logOutput('Error with manual connection: ' + error.message, true);
+                logOutput('View-only connection error: ' + error.message, true);
             }
         }
 
@@ -5650,8 +5686,8 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
         window.disconnectWallet = disconnectWallet;
         window.refreshWalletAccounts = refreshWalletAccounts;
         window.useSelectedAccount = useSelectedAccount;
-        window.debugWalletDetection = debugWalletDetection;
-        window.manualConnect = manualConnect;
+        window.connectViewOnly = connectViewOnly;
+        window.manualConnect = connectViewOnly;
         window.initRoster = initRoster;
         window.findRoster = findRoster;
         // Backwards-compatible aliases removed to prefer roster naming
@@ -5670,6 +5706,8 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             
             if (loadingScreen) loadingScreen.style.display = 'block';
             if (mainContent) mainContent.style.display = 'none';
+
+            updateWalletConnectionControls(false);
             
             waitForSDKs().then(async () => {
                 await initializeSuiClient();
@@ -5793,50 +5831,42 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
         </div>
 
         <div class="section">
-            <h3>Wallet Connection</h3>
-            
-            <!-- Wallet Standard Connection (Recommended) -->
-            <div style="margin-bottom: 25px;">
-                <button onclick="connectWalletStandard()" class="primary-btn" style="background: linear-gradient(145deg, #4CAF50, #45a049); width: 100%; margin-bottom: 10px;">
-                    🔎 Connect Wallet
-                </button>
-                <p style="font-size: 12px; color: #c3d5e8; text-align: center; margin: 0;">
-                    Select a Sui-capable wallet to connect
-                </p>
-                <!-- Modal is defined near the end of body -->
+            <div class="wallet-connection-header">
+                <h3>Wallet Connection</h3>
+                <button id="walletHeaderAction" class="primary-btn connect-wallet-inline">Connect</button>
             </div>
 
-            <!-- Traditional Options -->
-            <details style="margin-top: 25px; border: 1px solid rgba(69,139,189,.3); border-radius: 8px; padding: 15px;">
-                <summary style="cursor: pointer; font-weight: 600; color: #c3d5e8; font-size: 13px;">⚙️ Traditional Wallet Options</summary>
-                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(69,139,189,.2);">
-                    <button onclick="createNewWallet()">Create New Wallet</button>
-                    <div class="form-group">
-                        <input type="text" id="privateKeyInput" placeholder="Private key for import...">
-                        <button onclick="restoreWallet()">Import Wallet</button>
-                    </div>
-                </div>
-            </details>
-            
-            <!-- Manual Connection -->
-            <details style="margin-top: 15px; border: 1px solid rgba(139,69,189,.3); border-radius: 8px; padding: 10px;">
-                <summary style="cursor: pointer; font-weight: 500; color: #c3d5e8; font-size: 12px;">🔗 Manual Connection</summary>
-                <div style="margin-top: 10px;">
-                    <p style="font-size: 11px; color: #a0b3c5; margin: 0 0 8px 0;">If you have a wallet address to view (read-only mode)</p>
-                    <input type="text" id="manualAddress" placeholder="0x...your wallet address" style="width: 70%; font-size: 12px;">
-                    <button onclick="manualConnect(document.getElementById('manualAddress').value)" style="font-size: 12px; padding: 5px 10px;">Connect</button>
+            <details id="walletConnectionControls" class="section-toggle" open>
+                <summary>
+                    <span>Wallet Connection Controls</span>
+                    <span id="walletConnectionStatus" class="summary-status">Not connected</span>
+                </summary>
+                <div style="padding: 5px;">
+
+                    <!-- Traditional Options -->
+                    <details style="margin-top: 25px; border: 1px solid rgba(69,139,189,.3); border-radius: 8px; padding: 15px;">
+                        <summary style="cursor: pointer; font-weight: 600; color: #c3d5e8; font-size: 13px;">⚙️ Traditional Wallet Options</summary>
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(69,139,189,.2);">
+                            <button onclick="createNewWallet()">Create New Wallet</button>
+                            <div class="form-group">
+                                <input type="text" id="privateKeyInput" placeholder="Private key for import...">
+                                <button onclick="restoreWallet()">Import Wallet</button>
+                            </div>
+                        </div>
+                    </details>
+                    
+                    <!-- View-Only Connection -->
+                    <details style="margin-top: 15px; border: 1px solid rgba(139,69,189,.3); border-radius: 8px; padding: 10px;">
+                        <summary style="cursor: pointer; font-weight: 500; color: #c3d5e8; font-size: 12px;">👁️ View-Only Connection</summary>
+                        <div style="margin-top: 10px;">
+                            <p style="font-size: 11px; color: #a0b3c5; margin: 0 0 8px 0;">Enter a Sui address (0x...) or SuiNS name (example.sui) to view balances without signing.</p>
+                            <input type="text" id="viewOnlyTarget" placeholder="0x... or name.sui" style="width: 70%; font-size: 12px;">
+                            <button onclick="connectViewOnly(document.getElementById('viewOnlyTarget').value)" style="font-size: 12px; padding: 5px 10px;">Connect View-Only</button>
+                        </div>
+                    </details>
                 </div>
             </details>
 
-            <!-- Debug Section -->
-            <details style="margin-top: 15px; border: 1px solid rgba(69,139,189,.2); border-radius: 8px; padding: 10px;">
-                <summary style="cursor: pointer; font-weight: 500; color: #c3d5e8; font-size: 12px;">🔍 Debug Wallet Detection</summary>
-                <div style="margin-top: 10px;">
-                    <button onclick="debugWalletDetection()" style="font-size: 12px; padding: 5px 10px;">Debug Wallet Detection</button>
-                    <p style="font-size: 11px; color: #a0b3c5; margin: 5px 0 0 0;">Check what wallet extensions are detected</p>
-                </div>
-            </details>
-            
             <div id="walletInfo" class="wallet-info" style="display: none;">
                 <h4 class="wallet-heading">Connected Wallet
                     <span id="walletSuinsName" class="wallet-suins" style="display:none;">
@@ -5849,16 +5879,17 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                     <span id="currentAddress" class="address-value"></span>
                     <button type="button" class="copy-btn" data-copy-target="currentAddress" aria-label="Copy address" title="Copy address">Copy</button>
                 </p>
-                <p><strong>Balance:</strong> <span id="currentBalance">Loading...</span></p>
+                <p class="balance-row"><strong>Balance:</strong>
+                    <span id="currentBalance" class="balance-value">Loading...</span>
+                    <button type="button" class="balance-refresh" onclick="getWalletBalance()" aria-label="Refresh balance">Refresh</button>
+                </p>
                 <div id="accountSelector" class="form-group" style="display: none; align-items: center; gap: 6px;">
                     <label for="accountSelect" style="font-size: 12px; color: #cfe4f7;">Account:</label>
                     <select id="accountSelect" style="font-size: 12px; padding: 6px; min-width: 260px;"></select>
                     <button onclick="useSelectedAccount()" style="font-size: 12px; padding: 6px 10px;">Use Account</button>
                     <button onclick="refreshWalletAccounts()" style="font-size: 12px; padding: 6px 10px;">Refresh</button>
                 </div>
-                <button onclick="getWalletBalance()">Refresh Balance</button>
-                <button onclick="switchWalletAccount()" style="margin-left: 10px;">Switch Account</button>
-                <button onclick="disconnectWallet()" style="background: #dc3545; margin-left: 10px;">Disconnect</button>
+                <button onclick="disconnectWallet()" style="background: #dc3545;">Disconnect</button>
             </div>
         </div>
 
