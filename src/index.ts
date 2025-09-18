@@ -16,6 +16,8 @@ import * as GraphQLTransport from '@mysten/graphql-transport';
 import * as ZkSend from '@mysten/zksend';
 import * as Kiosk from '@mysten/kiosk';
 import * as Bip39 from '@scure/bip39';
+import { EnokiClient } from '@mysten/enoki';
+import * as Enoki from '@mysten/enoki';
 
 // Re-export Sui with specific imports using proper package exports
 const Sui = {
@@ -54,6 +56,7 @@ declare global {
       Kiosk: typeof Kiosk;
       ZkLogin: typeof ZkLogin;
       Bip39: typeof Bip39;
+      Enoki: typeof Enoki;
     };
   }
 }
@@ -70,9 +73,30 @@ window.SuiSDK = {
   ZkSend,
   Kiosk,
   Bip39,
-  // Also expose ZkLogin separately for convenience
   ZkLogin,
+  Enoki: { ...Enoki, EnokiClient },
 };
+
+// Ensure Enoki is properly exposed
+try {
+  (window as any).SuiSDK.EnokiClient = EnokiClient;
+  (window as any).EnokiSDK = Enoki;
+  (window as any).EnokiClient = EnokiClient;
+} catch (_) {}
+
+try {
+  const defaultEnokiKey = (import.meta as any)?.env?.VITE_ENOKI_PUBLIC_API_KEY ?? '';
+  if (defaultEnokiKey && typeof window !== 'undefined') {
+    (window as any).ENOKI_API_KEY = defaultEnokiKey;
+  }
+} catch (_) {}
+
+try {
+  const defaultEnokiUrl = (import.meta as any)?.env?.VITE_ENOKI_API_URL ?? '';
+  if (defaultEnokiUrl && typeof window !== 'undefined') {
+    (window as any).ENOKI_API_URL = defaultEnokiUrl;
+  }
+} catch (_) {}
 
 // Handle async init if needed (e.g., for Walrus WASM)
 // Note: Walrus init may not be available in current version
@@ -85,4 +109,7 @@ try {
 }
 
 console.log('Sui SDK Bundle loaded successfully');
+console.log('Enoki module check:', typeof Enoki, Enoki);
+console.log('EnokiClient check:', typeof EnokiClient, EnokiClient);
 console.log('Available SDKs:', Object.keys(window.SuiSDK));
+console.log('window.SuiSDK.Enoki:', window.SuiSDK.Enoki);

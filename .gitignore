@@ -25,6 +25,10 @@ tunnel-*.cloudflare.com
 # Scripts
 
 
+# Performance optimization tracking
+PERFORMANCE_OPTIMIZATIONS.md
+
 # Misc
 build/
 Docs/
+package-lock.json

@@ -346,6 +346,24 @@
         };
         const WALLET_ICON_PALETTE = ['#2d4a66', '#8e44ad', '#16a085', '#e67e22', '#c0392b', '#5a9bd4', '#e74c3c', '#1abc9c', '#9b59b6'];
 
+        const ZKLOGIN_CONFIG = {
+            GOOGLE_CLIENT_ID: '373405271144-kevesn5h18jt8grqh5cel7jcsu9si73t.apps.googleusercontent.com',
+            REDIRECT_PATH: '/auth/callback.html',
+            EPOCH_BUFFER: 5,
+            KEY_CLAIM_NAME: 'sub',
+            PROVER_URL: (typeof window !== 'undefined' && window.ZKLOGIN_PROVER_URL) ? String(window.ZKLOGIN_PROVER_URL) : ''
+        };
+
+        let pendingZkLoginContext = null;
+
+        const ENOKI_STORAGE_KEYS = {
+            API_KEY: 'smartwallet:enoki:apiKey',
+            API_URL: 'smartwallet:enoki:apiUrl'
+        };
+
+        let cachedEnokiClient = null;
+        let cachedEnokiClientConfig = null;
+
         function escapeHtml(value) {
             return String(value ?? '')
                 .replace(/&/g, '&amp;')
@@ -375,8 +393,654 @@
             return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
         }
 
+        function base64ToUint8Array(value) {
+            try {
+                let binary;
+                if (typeof window !== 'undefined' && typeof window.atob === 'function') {
+                    binary = window.atob(value);
+                } else if (typeof Buffer !== 'undefined') {
+                    binary = Buffer.from(value, 'base64').toString('binary');
+                } else {
+                    throw new Error('No base64 decoder available in this environment');
+                }
+                const len = binary.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return bytes;
+            } catch (error) {
+                console.warn('Failed to decode base64 payload', error);
+                return null;
+            }
+        }
+
+        function bytesToHex(bytes) {
+            return Array.from(bytes || [], (b) => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function decodeULEB(bytes, offset) {
+            let value = 0;
+            let shift = 0;
+            let position = offset || 0;
+            while (position < bytes.length) {
+                const byte = bytes[position];
+                value |= (byte & 0x7f) << shift;
+                position += 1;
+                if ((byte & 0x80) === 0) {
+                    break;
+                }
+                shift += 7;
+            }
+            return { value, nextOffset: position };
+        }
+
+        function decodeAddressVector(bytes) {
+            if (!(bytes instanceof Uint8Array) || !bytes.length) return [];
+            const { value: length, nextOffset } = decodeULEB(bytes, 0);
+            const addresses = [];
+            let offset = nextOffset;
+            for (let i = 0; i < length; i++) {
+                const slice = bytes.slice(offset, offset + 32);
+                if (slice.length < 32) break;
+                addresses.push('0x' + bytesToHex(slice));
+                offset += 32;
+            }
+            return addresses;
+        }
+
+        async function fetchRosterWalletMemberships(memberAddress) {
+            if (!rosterId) return [];
+            try {
+                if (!suiClient) {
+                    await initializeSuiClient();
+                }
+                const { Transaction, normalizeSuiAddress } = window.SuiSDK.Sui;
+                const normalizedMember = normalizeSuiAddress(memberAddress);
+                const tx = new Transaction();
+                tx.moveCall({
+                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::wallets_of`,
+                    arguments: [
+                        tx.object(rosterId),
+                        tx.pure.address(normalizedMember)
+                    ]
+                });
+
+                const inspection = await suiClient.devInspectTransactionBlock({
+                    sender: normalizedMember,
+                    transactionBlock: tx
+                });
+
+                const results = inspection && inspection.results ? inspection.results : [];
+                if (!results.length || !Array.isArray(results[0]?.returnValues)) {
+                    return [];
+                }
+
+                const wallets = [];
+                const returnValues = results[0].returnValues;
+                for (const entry of returnValues) {
+                    if (!entry || entry.length < 1) continue;
+                    const raw = entry[0];
+                    let bytes = null;
+                    if (typeof raw === 'string') {
+                        bytes = base64ToUint8Array(raw);
+                    } else if (Array.isArray(raw)) {
+                        bytes = Uint8Array.from(raw);
+                    } else if (raw instanceof Uint8Array) {
+                        bytes = raw;
+                    }
+                    if (!bytes || !bytes.length) continue;
+                    const decoded = decodeAddressVector(bytes);
+                    for (const addr of decoded) {
+                        if (!addr) continue;
+                        const normalizedAddr = (window.SuiSDK?.Sui?.normalizeSuiAddress)
+                            ? window.SuiSDK.Sui.normalizeSuiAddress(addr)
+                            : addr.toLowerCase();
+                        if (!wallets.includes(normalizedAddr)) wallets.push(normalizedAddr);
+                    }
+                }
+                return wallets;
+            } catch (error) {
+                logOutput('Roster membership lookup failed: ' + error.message, true);
+                return [];
+            }
+        }
+
+        function resolveEnokiNetwork(network) {
+            switch ((network || '').toLowerCase()) {
+                case 'mainnet':
+                    return 'mainnet';
+                case 'devnet':
+                case 'localnet':
+                    return 'devnet';
+                case 'testnet':
+                default:
+                    return 'testnet';
+            }
+        }
+
+        function getEnokiNamespace() {
+            try {
+                const sdk = window.SuiSDK || {};
+                if (sdk.Enoki) return sdk.Enoki;
+                if (sdk.EnokiClient) {
+                    return { EnokiClient: sdk.EnokiClient };
+                }
+            } catch (_) {}
+            try {
+                if (window.EnokiSDK) return window.EnokiSDK;
+                if (window.EnokiClient) {
+                    return { EnokiClient: window.EnokiClient };
+                }
+            } catch (_) {}
+            return null;
+        }
+
+        function getEnokiApiKey() {
+            try {
+                if (typeof window !== 'undefined' && window.ENOKI_API_KEY) {
+                    const value = String(window.ENOKI_API_KEY || '').trim();
+                    if (value) return value;
+                }
+            } catch (_) {}
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    const stored = localStorage.getItem(ENOKI_STORAGE_KEYS.API_KEY);
+                    if (stored && stored.trim()) return stored.trim();
+                }
+            } catch (_) {}
+            return '';
+        }
+
+        function setEnokiApiKey(apiKey) {
+            const value = String(apiKey || '').trim();
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    if (value) {
+                        localStorage.setItem(ENOKI_STORAGE_KEYS.API_KEY, value);
+                    } else {
+                        localStorage.removeItem(ENOKI_STORAGE_KEYS.API_KEY);
+                    }
+                }
+            } catch (_) {}
+            try { window.ENOKI_API_KEY = value; } catch (_) {}
+            cachedEnokiClient = null;
+            cachedEnokiClientConfig = null;
+            return value;
+        }
+
+        function getEnokiApiUrl() {
+            try {
+                if (typeof window !== 'undefined' && window.ENOKI_API_URL) {
+                    const value = String(window.ENOKI_API_URL || '').trim();
+                    if (value) return value;
+                }
+            } catch (_) {}
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    const stored = localStorage.getItem(ENOKI_STORAGE_KEYS.API_URL);
+                    if (stored && stored.trim()) return stored.trim();
+                }
+            } catch (_) {}
+            return '';
+        }
+
+        function setEnokiApiUrl(apiUrl) {
+            const value = String(apiUrl || '').trim();
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    if (value) {
+                        localStorage.setItem(ENOKI_STORAGE_KEYS.API_URL, value);
+                    } else {
+                        localStorage.removeItem(ENOKI_STORAGE_KEYS.API_URL);
+                    }
+                }
+            } catch (_) {}
+            try { window.ENOKI_API_URL = value; } catch (_) {}
+            cachedEnokiClient = null;
+            cachedEnokiClientConfig = null;
+            return value;
+        }
+
+        function getEnokiClient({ silent = false } = {}) {
+            try {
+                const EnokiNS = getEnokiNamespace();
+                if (!EnokiNS) {
+                    throw new Error('Enoki SDK is not available in the current bundle.');
+                }
+                const apiKey = getEnokiApiKey();
+                if (!apiKey) {
+                    throw new Error('Enoki API key not set. Call window.setEnokiApiKey("<API_KEY>") to enable zkLogin signing.');
+                }
+                const apiUrl = getEnokiApiUrl();
+                const configKey = JSON.stringify({ apiKey, apiUrl });
+                if (!cachedEnokiClient || cachedEnokiClientConfig !== configKey) {
+                    cachedEnokiClient = new EnokiNS.EnokiClient({
+                        apiKey,
+                        apiUrl: apiUrl || undefined
+                    });
+                    cachedEnokiClientConfig = configKey;
+                }
+                return cachedEnokiClient;
+            } catch (error) {
+                if (!silent) logOutput('Failed to initialize Enoki client: ' + error.message, true);
+                throw error;
+            }
+        }
+
+        function getZkLoginRedirectUri() {
+            try {
+                if (!window.location || !window.location.origin) {
+                    return ZKLOGIN_CONFIG.REDIRECT_PATH || '/auth/callback.html';
+                }
+                const url = new URL(ZKLOGIN_CONFIG.REDIRECT_PATH || '/auth/callback.html', window.location.origin);
+                return url.toString();
+            } catch (_) {
+                return `${window.location.origin || ''}/auth/callback.html`;
+            }
+        }
+
+        function mapIssuerToProvider(iss) {
+            if (!iss) return 'Unknown Provider';
+            const normalized = iss.replace(/^https?:\/\//, '');
+            if (normalized.startsWith('accounts.google.com')) return 'Google';
+            if (normalized.includes('apple')) return 'Apple';
+            if (normalized.includes('facebook')) return 'Facebook';
+            try {
+                const url = new URL(iss);
+                return url.hostname;
+            } catch (_) {
+                return normalized;
+            }
+        }
+
+        function buildZkLoginAuthUrl(nonce) {
+            const params = new URLSearchParams({
+                client_id: ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID,
+                redirect_uri: getZkLoginRedirectUri(),
+                response_type: 'id_token',
+                scope: 'openid email profile',
+                nonce: nonce,
+                state: 'zklogin_smartwallet'
+            });
+            return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+        }
+
+        async function prepareZkLoginContext() {
+            if (!window.SuiSDK || !window.SuiSDK.ZkLogin || !window.SuiSDK.Sui) {
+                throw new Error('Sui SDK not loaded');
+            }
+            if (!suiClient) {
+                await initializeSuiClient();
+            }
+            const { Ed25519Keypair } = window.SuiSDK.Sui;
+            const { getExtendedEphemeralPublicKey } = window.SuiSDK.ZkLogin;
+
+            const enokiClient = getEnokiClient();
+            if (!enokiClient) {
+                throw new Error('Enoki API key not configured. Call window.setEnokiApiKey("<API_KEY>") before starting zkLogin.');
+            }
+
+            const ephemeralKeyPair = Ed25519Keypair.generate();
+            const extendedPublicKey = getExtendedEphemeralPublicKey(ephemeralKeyPair.getPublicKey());
+
+            const additionalEpochs = Number(ZKLOGIN_CONFIG.EPOCH_BUFFER ?? 5);
+            const nonceResponse = await enokiClient.createZkLoginNonce({
+                network: resolveEnokiNetwork(currentNetwork),
+                ephemeralPublicKey: ephemeralKeyPair.getPublicKey(),
+                additionalEpochs: Number.isFinite(additionalEpochs) ? additionalEpochs : undefined
+            });
+
+            return {
+                ephemeralKeyPair,
+                randomness: nonceResponse.randomness,
+                nonce: nonceResponse.nonce,
+                maxEpoch: String(nonceResponse.maxEpoch),
+                extendedPublicKey,
+                provider: 'enoki',
+                expiresAt: nonceResponse.estimatedExpiration || null
+            };
+        }
+
+        function openOAuthPopup(authUrl) {
+            return new Promise((resolve, reject) => {
+                const popup = window.open(
+                    authUrl,
+                    'zklogin_oauth',
+                    'width=500,height=600,scrollbars=yes,resizable=yes'
+                );
+
+                if (!popup) {
+                    reject(new Error('Failed to open popup - please allow popups'));
+                    return;
+                }
+
+                let checkClosed = null;
+
+                const cleanup = () => {
+                    window.removeEventListener('message', messageHandler);
+                    if (checkClosed) {
+                        clearInterval(checkClosed);
+                        checkClosed = null;
+                    }
+                };
+
+                const messageHandler = (event) => {
+                    if (event.origin !== window.location.origin) {
+                        return;
+                    }
+                    if (event.data?.type === 'zklogin_oauth_success') {
+                        cleanup();
+                        resolve(event.data.idToken);
+                    } else if (event.data?.type === 'zklogin_oauth_error') {
+                        cleanup();
+                        reject(new Error('OAuth error: ' + event.data.error));
+                    }
+                };
+
+                window.addEventListener('message', messageHandler);
+
+                checkClosed = setInterval(() => {
+                    if (popup.closed) {
+                        cleanup();
+                        reject(new Error('OAuth popup was closed by user'));
+                    }
+                }, 800);
+            });
+        }
+
+        function validateZkLoginJwt(decodedJwt, expectedNonce, expectedAud) {
+            if (!decodedJwt) {
+                throw new Error('Missing JWT payload');
+            }
+            if (!decodedJwt.sub) {
+                throw new Error('JWT missing subject (sub)');
+            }
+            if (!decodedJwt.iss) {
+                throw new Error('JWT missing issuer (iss)');
+            }
+            if (!decodedJwt.nonce) {
+                throw new Error('JWT missing nonce');
+            }
+            if (decodedJwt.nonce !== expectedNonce) {
+                throw new Error('Nonce mismatch between request and JWT');
+            }
+            if (decodedJwt.aud !== expectedAud) {
+                throw new Error('Unexpected JWT audience');
+            }
+            return true;
+        }
+
+        async function handleZkLoginConnect() {
+            try {
+                logOutput('🔐 Starting zkLogin (Google)...');
+                await waitForSDKs();
+                if (!suiClient) {
+                    await initializeSuiClient();
+                }
+
+                pendingZkLoginContext = await prepareZkLoginContext();
+                logOutput(`🪪 Opening Google OAuth... (nonce source: ${pendingZkLoginContext.provider || 'local'})`);
+
+                const authUrl = buildZkLoginAuthUrl(pendingZkLoginContext.nonce);
+                const jwt = await openOAuthPopup(authUrl);
+                logOutput('✅ Received id_token from provider');
+
+                const { ZkLogin } = window.SuiSDK;
+                if (!ZkLogin) {
+                    throw new Error('ZkLogin utilities unavailable in SDK bundle');
+                }
+
+                const decodedJwt = ZkLogin.decodeJwt(jwt);
+                validateZkLoginJwt(decodedJwt, pendingZkLoginContext.nonce, ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID);
+
+                const enokiClient = getEnokiClient();
+                if (!enokiClient) {
+                    throw new Error('Enoki API key not configured. Call window.setEnokiApiKey("<API_KEY>") before starting zkLogin.');
+                }
+                let enokiProfile = null;
+                try {
+                    enokiProfile = await enokiClient.getZkLogin({ jwt });
+                } catch (profileError) {
+                    throw new Error('Enoki profile lookup failed: ' + profileError.message);
+                }
+
+                const claimName = ZKLOGIN_CONFIG.KEY_CLAIM_NAME || 'sub';
+                const claimValue = decodedJwt[claimName] ?? decodedJwt.sub;
+
+                if (!enokiProfile?.salt) {
+                    throw new Error('Enoki profile did not return a salt for this login.');
+                }
+                const salt = enokiProfile.salt;
+
+                const computedAddress = ZkLogin.jwtToAddress(jwt, salt, false);
+                const enokiAddress = enokiProfile.address || '';
+                const suiAddress = enokiAddress && enokiAddress.toLowerCase() === computedAddress.toLowerCase()
+                    ? enokiAddress
+                    : computedAddress;
+
+                let addressSeed = ZkLogin.genAddressSeed(salt, claimName, claimValue, decodedJwt.aud);
+                let publicIdentifier = ZkLogin.toZkLoginPublicIdentifier(addressSeed, decodedJwt.iss, { legacyAddress: false });
+
+                let signatureInputs = null;
+                const signatureMaxEpoch = pendingZkLoginContext.maxEpoch;
+                let proverDetails = null;
+                const enokiPublicKey = enokiProfile.publicKey || null;
+                try {
+                    const network = resolveEnokiNetwork(currentNetwork);
+                    const zkp = await enokiClient.createZkLoginZkp({
+                        network,
+                        jwt,
+                        maxEpoch: Number(pendingZkLoginContext.maxEpoch),
+                        randomness: pendingZkLoginContext.randomness,
+                        ephemeralPublicKey: pendingZkLoginContext.ephemeralKeyPair.getPublicKey()
+                    });
+                    signatureInputs = zkp;
+                    proverDetails = {
+                        provider: 'enoki',
+                        network,
+                        receivedAt: Date.now()
+                    };
+                } catch (proverError) {
+                    throw new Error('Enoki proving error: ' + proverError.message);
+                }
+
+                currentWallet = {
+                    address: suiAddress,
+                    type: 'zkLogin',
+                    provider: mapIssuerToProvider(decodedJwt.iss),
+                    zkLogin: {
+                        jwt,
+                        payload: decodedJwt,
+                        salt,
+                        addressSeed: addressSeed.toString(),
+                        publicIdentifier: publicIdentifier.toBase64(),
+                        publicKey: enokiPublicKey,
+                        nonce: pendingZkLoginContext.nonce,
+                        randomness: pendingZkLoginContext.randomness,
+                        maxEpoch: signatureMaxEpoch,
+                        ephemeralPublicKey: pendingZkLoginContext.extendedPublicKey,
+                        connectedAt: Date.now(),
+                        expiresAt: pendingZkLoginContext.expiresAt || null,
+                        signatureInputs,
+                        prover: proverDetails,
+                        ephemeralKeypair: pendingZkLoginContext.ephemeralKeyPair || null,
+                        canSign: Boolean(signatureInputs)
+                    }
+                };
+                connectedWalletStandard = null;
+
+                showCurrentWalletAddress(suiAddress);
+                document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
+                document.getElementById('walletType').textContent = `zkLogin (${currentWallet.provider})`;
+
+                setAccountsList([]);
+
+                // Store zkLogin proof in session storage
+                try {
+                    const zkLoginSessionData = {
+                        address: suiAddress,
+                        provider: mapIssuerToProvider(decodedJwt.iss),
+                        jwt,
+                        payload: decodedJwt,
+                        salt,
+                        addressSeed: addressSeed.toString(),
+                        publicIdentifier: publicIdentifier.toBase64(),
+                        publicKey: enokiPublicKey,
+                        nonce: pendingZkLoginContext.nonce,
+                        randomness: pendingZkLoginContext.randomness,
+                        maxEpoch: signatureMaxEpoch,
+                        ephemeralPublicKey: pendingZkLoginContext.extendedPublicKey,
+                        connectedAt: Date.now(),
+                        expiresAt: pendingZkLoginContext.expiresAt || null,
+                        signatureInputs,
+                        prover: proverDetails,
+                        canSign: Boolean(signatureInputs)
+                    };
+                    sessionStorage.setItem('smartwallet:zkLogin', JSON.stringify(zkLoginSessionData));
+                    logOutput('🔐 zkLogin proof stored in session storage');
+                } catch (storageError) {
+                    logOutput('Warning: Failed to store zkLogin proof in session storage: ' + storageError.message, false);
+                }
+
+                logOutput(`🎉 zkLogin connected as ${suiAddress}`);
+                if (signatureInputs) {
+                    logOutput(`🔏 Enoki zkLogin proof ready. Transactions can be signed until epoch ${signatureMaxEpoch || '(unknown)'}.`);
+                } else {
+                    logOutput('⚠️ zkLogin proving service not available; wallet remains read-only until Enoki configuration is complete.');
+                }
+
+                await getWalletBalance();
+                try {
+                    await findMyWallets();
+                } catch (e) {
+                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
+                }
+            } catch (error) {
+                logOutput('zkLogin connection failed: ' + error.message, true);
+                throw error;
+            } finally {
+                pendingZkLoginContext = null;
+            }
+        }
+
+        async function restoreZkLoginFromSession() {
+            try {
+                const stored = sessionStorage.getItem('smartwallet:zkLogin');
+                if (!stored) {
+                    return false;
+                }
+
+                const sessionData = JSON.parse(stored);
+                if (!sessionData || !sessionData.address) {
+                    sessionStorage.removeItem('smartwallet:zkLogin');
+                    return false;
+                }
+
+                // Check if the session data is still valid (not expired)
+                const now = Date.now();
+                if (sessionData.expiresAt && now > sessionData.expiresAt) {
+                    sessionStorage.removeItem('smartwallet:zkLogin');
+                    logOutput('zkLogin session expired, please reconnect');
+                    return false;
+                }
+
+                // Check epoch validity if maxEpoch is available
+                if (sessionData.maxEpoch) {
+                    try {
+                        if (!suiClient) await initializeSuiClient();
+                        const epochInfo = await suiClient.getLatestSuiSystemState();
+                        const currentEpoch = epochInfo?.epoch ? parseInt(epochInfo.epoch) : 0;
+                        const maxEpoch = parseInt(sessionData.maxEpoch);
+
+                        if (currentEpoch >= maxEpoch) {
+                            sessionStorage.removeItem('smartwallet:zkLogin');
+                            logOutput('zkLogin proof expired (epoch exceeded), please reconnect');
+                            return false;
+                        }
+                    } catch (epochError) {
+                        logOutput('Warning: Could not verify epoch validity: ' + epochError.message, false);
+                    }
+                }
+
+                // Restore wallet from session data
+                currentWallet = {
+                    address: sessionData.address,
+                    type: 'zkLogin',
+                    provider: sessionData.provider,
+                    zkLogin: {
+                        jwt: sessionData.jwt,
+                        payload: sessionData.payload,
+                        salt: sessionData.salt,
+                        addressSeed: sessionData.addressSeed,
+                        publicIdentifier: sessionData.publicIdentifier,
+                        publicKey: sessionData.publicKey,
+                        nonce: sessionData.nonce,
+                        randomness: sessionData.randomness,
+                        maxEpoch: sessionData.maxEpoch,
+                        ephemeralPublicKey: sessionData.ephemeralPublicKey,
+                        connectedAt: sessionData.connectedAt,
+                        expiresAt: sessionData.expiresAt,
+                        signatureInputs: sessionData.signatureInputs,
+                        prover: sessionData.prover,
+                        ephemeralKeypair: null, // Keypair cannot be serialized, will need to regenerate if needed
+                        canSign: Boolean(sessionData.signatureInputs)
+                    }
+                };
+                connectedWalletStandard = null;
+
+                showCurrentWalletAddress(sessionData.address);
+                document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
+                document.getElementById('walletType').textContent = `zkLogin (${currentWallet.provider})`;
+                setAccountsList([]);
+
+                logOutput('🔐 zkLogin session restored from storage');
+                logOutput(`🎉 Reconnected as ${sessionData.address}`);
+                if (sessionData.signatureInputs) {
+                    logOutput(`🔏 zkLogin proof valid until epoch ${sessionData.maxEpoch || '(unknown)'}`);
+                } else {
+                    logOutput('⚠️ Session restored but signing capability unavailable');
+                }
+
+                await getWalletBalance();
+                try {
+                    await findMyWallets();
+                } catch (e) {
+                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
+                }
+
+                return true;
+            } catch (error) {
+                logOutput('Failed to restore zkLogin session: ' + error.message, true);
+                sessionStorage.removeItem('smartwallet:zkLogin');
+                return false;
+            }
+        }
+
+        function buildPrimaryWalletEntries() {
+            return [
+                {
+                    type: 'custom',
+                    action: 'zkLogin',
+                    name: 'zkLogin (Google)',
+                    icon: makeWalletIcon('ZK', '#6c4bcc')
+                },
+                {
+                    type: 'custom',
+                    action: 'passkey',
+                    name: 'Passkey (Preview)',
+                    icon: makeWalletIcon('PK', '#1c858f')
+                }
+            ];
+        }
+
         function getWalletIconForEntry(entry) {
             try {
+                if (entry && typeof entry.icon === 'string') {
+                    return entry.icon;
+                }
                 const wallet = entry && entry.wallet ? entry.wallet : null;
                 const iconCandidates = [];
                 if (wallet) {
@@ -1129,7 +1793,7 @@
             if (!overlay || !list) return;
             
             // Start with the pre-filtered Sui wallets from @mysten/wallet-standard
-            var entries = [];
+            var entries = buildPrimaryWalletEntries();
             
             // Add wallet standard entries (already filtered for Sui compatibility)
             for (var i = 0; i < (suiWallets || []).length; i++) {
@@ -1215,6 +1879,14 @@
                     await connectViaWindowSui();
                 } else if (entry.type === 'phantomSui') {
                     await connectViaPhantomSui();
+                } else if (entry.type === 'custom') {
+                    if (entry.action === 'zkLogin') {
+                        await handleZkLoginConnect();
+                    } else if (entry.action === 'passkey') {
+                        await handlePasskeyStub();
+                    } else {
+                        throw new Error('Unsupported custom wallet entry');
+                    }
                 } else {
                     throw new Error('Unsupported wallet entry');
                 }
@@ -1222,6 +1894,10 @@
                 logOutput('Wallet selection error: ' + e.message, true);
             }
         };
+
+        async function handlePasskeyStub() {
+            logOutput('🧪 Passkey flow coming soon. This option will use Mysten passkey helpers in the inline Sui SDK.');
+        }
 
         async function connectToWallet(wallet) {
             try {
@@ -1484,6 +2160,12 @@
                 
                 currentWallet = null;
                 connectedWalletStandard = null;
+                try { setAccountsList([]); } catch (_) {}
+
+                // Clear zkLogin session storage
+                try {
+                    sessionStorage.removeItem('smartwallet:zkLogin');
+                } catch (_) {}
                 
                 document.getElementById('walletInfo').style.display = 'none';
                 updateWalletConnectionControls(false);
@@ -1574,6 +2256,56 @@
                 
                 throw new Error('Wallet does not support transaction signing. Please ensure your wallet supports the Sui Wallet Standard.');
                 
+            } else if (currentWallet.type === 'zkLogin') {
+                const zk = currentWallet.zkLogin || {};
+                if (!zk.signatureInputs) {
+                    throw new Error('zkLogin proving service not ready. Reconnect after configuring the prover URL.');
+                }
+                if (!zk.ephemeralKeypair) {
+                    throw new Error('zkLogin session missing ephemeral keypair. Please reconnect via zkLogin before signing.');
+                }
+
+                const { Transaction } = window.SuiSDK.Sui;
+                if (!(tx instanceof Transaction)) {
+                    throw new Error('Unsupported transaction object for zkLogin signing.');
+                }
+
+                tx.setSenderIfNotSet(currentWallet.address);
+                const txBytes = await tx.build({ client: suiClient });
+
+                const { signature } = await zk.ephemeralKeypair.signTransaction(txBytes);
+                const signatureBytes = window.SuiSDK.BCS.fromBase64(signature);
+                if (!signatureBytes || signatureBytes.length < 65) {
+                    throw new Error('Invalid zkLogin user signature produced.');
+                }
+                const rawUserSignature = signatureBytes.slice(1, 65);
+
+                const maxEpochValue = zk.maxEpoch || pendingZkLoginContext?.maxEpoch;
+                if (!maxEpochValue) {
+                    throw new Error('Missing maxEpoch for zkLogin signature. Reconnect to refresh the session.');
+                }
+                let maxEpochBigInt;
+                try {
+                    maxEpochBigInt = BigInt(maxEpochValue);
+                } catch (_) {
+                    throw new Error('Invalid maxEpoch value returned by zkLogin proving service.');
+                }
+
+                const zkSignature = window.SuiSDK.ZkLogin.getZkLoginSignature({
+                    inputs: zk.signatureInputs,
+                    maxEpoch: maxEpochBigInt,
+                    userSignature: rawUserSignature
+                });
+
+                logOutput('🔐 Signing transaction with zkLogin...');
+                const result = await suiClient.executeTransactionBlock({
+                    transactionBlock: txBytes,
+                    signature: [zkSignature],
+                    options: { showEffects: true, showObjectChanges: true }
+                });
+                logOutput('✅ zkLogin transaction executed successfully');
+                return result;
+
             } else {
                 // Use traditional keypair signing for non-wallet-standard connections
                 return await suiClient.signAndExecuteTransaction({
@@ -1768,7 +2500,32 @@
 
             try {
                 logOutput('Finding your smart wallets...');
-                const objects = await suiClient.getOwnedObjects({
+
+                const walletMap = new Map();
+                let rosterNewCount = 0;
+
+                function registerWalletObject(obj, source) {
+                    if (!obj || !obj.data || !obj.data.objectId) return;
+                    const walletId = (window.SuiSDK?.Sui?.normalizeSuiAddress)
+                        ? window.SuiSDK.Sui.normalizeSuiAddress(obj.data.objectId)
+                        : String(obj.data.objectId).toLowerCase();
+                    if (!walletMap.has(walletId)) {
+                        walletMap.set(walletId, {
+                            id: walletId,
+                            object: obj,
+                            sources: new Set([source])
+                        });
+                        if (source === 'roster') rosterNewCount += 1;
+                    } else {
+                        const entry = walletMap.get(walletId);
+                        entry.sources.add(source);
+                        if (!walletMap.get(walletId).object?.data?.content && obj.data?.content) {
+                            entry.object = obj;
+                        }
+                    }
+                }
+
+                const ownedObjects = await suiClient.getOwnedObjects({
                     owner: currentWallet.address,
                     filter: {
                         StructType: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::SmartWallet`
@@ -1776,41 +2533,118 @@
                     options: { showContent: true, showDisplay: true }
                 });
 
+                ownedObjects.data.forEach((obj) => registerWalletObject(obj, 'owned'));
+
+                const rosterWalletIds = await fetchRosterWalletMemberships(currentWallet.address);
+                const missingIds = [];
+                for (const wid of rosterWalletIds) {
+                    const normalized = (window.SuiSDK?.Sui?.normalizeSuiAddress)
+                        ? window.SuiSDK.Sui.normalizeSuiAddress(wid)
+                        : wid.toLowerCase();
+                    if (!walletMap.has(normalized)) {
+                        missingIds.push(normalized);
+                    } else {
+                        walletMap.get(normalized).sources.add('roster');
+                    }
+                }
+
+                if (missingIds.length) {
+                    try {
+                        const rosterObjects = await suiClient.multiGetObjects({
+                            ids: missingIds,
+                            options: { showContent: true, showDisplay: true }
+                        });
+                        rosterObjects.forEach((obj, index) => {
+                            if (obj?.data?.objectId) {
+                                const walletId = obj.data.objectId;
+                                registerWalletObject(obj, 'roster');
+                            } else {
+                                const fallbackId = missingIds[index];
+                                if (!walletMap.has(fallbackId)) {
+                                    walletMap.set(fallbackId, {
+                                        id: fallbackId,
+                                        object: obj,
+                                        sources: new Set(['roster'])
+                                    });
+                                }
+                            }
+                        });
+                    } catch (error) {
+                        logOutput('Failed to fetch roster-linked wallets: ' + error.message, true);
+                    }
+                }
+
                 const walletsList = document.getElementById('walletsList');
                 walletsList.innerHTML = '';
 
-                if (objects.data.length === 0) {
+                const walletEntries = Array.from(walletMap.values());
+
+                if (!walletEntries.length) {
                     walletsList.innerHTML = '<p>No smart wallets found</p>';
                     hideSmartWalletOperations();
                     logOutput('No smart wallets found');
                     return;
                 }
 
-                objects.data.forEach(obj => {
-                    const walletId = obj.data.objectId;
-                    const walletData = obj.data.content.fields;
-                    const memberCount = getMemberCountFromWalletFields(walletData);
+                walletEntries.sort((a, b) => {
+                    const aRank = a.sources.has('owned') ? 0 : 1;
+                    const bRank = b.sources.has('owned') ? 0 : 1;
+                    if (aRank !== bRank) return aRank - bRank;
+                    return a.id.localeCompare(b.id);
+                });
+
+                walletEntries.forEach(({ id, object, sources }) => {
+                    const fields = object?.data?.content?.fields || {};
+                    let nameBytes = null;
+                    try {
+                        if (fields.name instanceof Uint8Array) {
+                            nameBytes = fields.name;
+                        } else if (Array.isArray(fields.name)) {
+                            nameBytes = new Uint8Array(fields.name);
+                        } else if (fields.name && typeof fields.name === 'object' && 'bytes' in fields.name) {
+                            nameBytes = new Uint8Array(fields.name.bytes);
+                        } else if (typeof fields.name === 'string') {
+                            nameBytes = new TextEncoder().encode(fields.name);
+                        }
+                    } catch (_) {}
+                    let walletName = 'Unknown';
+                    try {
+                        if (nameBytes) {
+                            walletName = new TextDecoder().decode(nameBytes);
+                        }
+                    } catch (_) {}
+                    const memberCount = getMemberCountFromWalletFields(fields);
+                    const balanceNumber = Number(fields.balance || 0) / 1_000_000_000;
+                    let sourceLabel = 'Member';
+                    if (sources.has('owned') && sources.has('roster')) {
+                        sourceLabel = 'Owner & Member';
+                    } else if (sources.has('owned')) {
+                        sourceLabel = 'Owner';
+                    }
 
                     const card = document.createElement('div');
                     card.className = 'contract-card';
                     card.innerHTML = `
-                        <h4>Smart Wallet</h4>
-                        <div class="address-display">ID: ${walletId}</div>
-                        <p><strong>Name:</strong> ${walletData.name ? new TextDecoder().decode(new Uint8Array(walletData.name)) : 'Unknown'}</p>
-                        <p><strong>Version:</strong> ${walletData.version}</p>
-                        <p><strong>Balance:</strong> ${Number(walletData.balance || 0) / 1_000_000_000} SUI</p>
+                        <h4>Smart Wallet (${sourceLabel})</h4>
+                        <div class="address-display">ID: ${id}</div>
+                        <p><strong>Name:</strong> ${walletName}</p>
+                        <p><strong>Version:</strong> ${fields.version ?? 'Unknown'}</p>
+                        <p><strong>Balance:</strong> ${balanceNumber} SUI</p>
                         <p><strong>Members:</strong> ${memberCount}</p>
-                        <button onclick="selectSmartWallet('${walletId}')">Select Wallet</button>
-                        <button onclick="viewWalletDetails('${walletId}')">View Details</button>
+                        <button onclick="selectSmartWallet('${id}')">Select Wallet</button>
+                        <button onclick="viewWalletDetails('${id}')">View Details</button>
                     `;
                     walletsList.appendChild(card);
                 });
 
-                logOutput(`Found ${objects.data.length} smart wallet(s)`);
+                logOutput(`Found ${walletEntries.length} smart wallet(s)`);
 
-                // If only one wallet exists, automatically select it
-                if (objects.data.length === 1) {
-                    const singleWalletId = objects.data[0].data.objectId;
+                if (rosterNewCount > 0) {
+                    logOutput(`Roster lookup added ${rosterNewCount} wallet reference(s) for this member.`);
+                }
+
+                if (walletEntries.length === 1) {
+                    const singleWalletId = walletEntries[0].id;
                     window.selectSmartWallet(singleWalletId);
                     logOutput(`Automatically selected the only available wallet: ${singleWalletId}`);
                 }
@@ -2178,6 +3012,16 @@
         window.useSelectedAccount = useSelectedAccount;
         window.connectViewOnly = connectViewOnly;
         window.manualConnect = connectViewOnly;
+        window.setEnokiApiKey = function(apiKey) {
+            const value = setEnokiApiKey(apiKey);
+            logOutput(`Enoki API key ${value ? 'set' : 'cleared'}.`);
+            return value;
+        };
+        window.setEnokiApiUrl = function(apiUrl) {
+            const value = setEnokiApiUrl(apiUrl);
+            logOutput(`Enoki API URL ${value ? 'set to ' + value : 'cleared'}.`);
+            return value;
+        };
         window.initRoster = initRoster;
         window.findRoster = findRoster;
         // Backwards-compatible aliases removed to prefer roster naming
@@ -2188,6 +3032,25 @@
         window.approveProposal = approveProposal;
         window.depositToWallet = depositToWallet;
         window.switchWalletAccount = switchWalletAccount;
+        window.clearZkLoginSession = function() {
+            try {
+                sessionStorage.removeItem('smartwallet:zkLogin');
+                logOutput('zkLogin session storage cleared');
+            } catch (e) {
+                logOutput('Failed to clear zkLogin session: ' + e.message, true);
+            }
+        };
+
+        (function initializeEnokiDefaults() {
+            try {
+                const defaultKey = typeof window !== 'undefined' && window.ENOKI_API_KEY ? String(window.ENOKI_API_KEY).trim() : '';
+                if (defaultKey) setEnokiApiKey(defaultKey);
+            } catch (_) {}
+            try {
+                const defaultUrl = typeof window !== 'undefined' && window.ENOKI_API_URL ? String(window.ENOKI_API_URL).trim() : '';
+                if (defaultUrl) setEnokiApiUrl(defaultUrl);
+            } catch (_) {}
+        })();
 
         // App initialization
         function initializeApp() {
@@ -2212,7 +3075,14 @@
                     const inp = document.getElementById('packageIdInput');
                     if (inp) inp.value = getPackageId() || '';
                 } catch (_) {}
-                
+
+                // Try to restore zkLogin session if available
+                try {
+                    await restoreZkLoginFromSession();
+                } catch (e) {
+                    logOutput('Failed to restore zkLogin session: ' + e.message, false);
+                }
+
                 // Wallet detection is now working - no need for automatic debug
                 
                 setTimeout(() => {

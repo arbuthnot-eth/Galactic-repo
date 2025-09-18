@@ -52,5 +52,7 @@ export default defineConfig({
     global: 'globalThis',
     'process.env.NODE_ENV': '"production"',
     'process.env': '{}',
+    'import.meta.env.VITE_ENOKI_API_KEY': JSON.stringify(process.env.VITE_ENOKI_API_KEY || process.env.ENOKI_PUBLIC_API_KEY || ''),
+    'import.meta.env.VITE_ENOKI_API_URL': JSON.stringify(process.env.VITE_ENOKI_API_URL || process.env.ENOKI_API_URL || ''),
   },
 });

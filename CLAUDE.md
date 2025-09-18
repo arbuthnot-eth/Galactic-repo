@@ -1,5 +1,14 @@
 # vWallet Coding Agent Instructions
 
+## Core Principle: Efficiency & Lean Code
+**ALWAYS prioritize deleting code over adding code. Focus on lean, fast-loading solutions.**
+
+- **Delete First**: Remove unused code, dependencies, and features before adding new ones
+- **Minimize Bundle Size**: Every line of code affects load time and performance
+- **Lean Dependencies**: Avoid adding new dependencies unless absolutely necessary
+- **Fast Loading**: Optimize for browser performance and minimal network requests
+- **Code Reduction**: Value simplification and removal over feature addition
+
 ## Agent Processing Flow
 
 ### 1. Context - Gather All Relevant Information First
@@ -94,6 +103,9 @@
 **Execute changes following established patterns:**
 
 - **Coding Standards**:
+  - **Efficiency First**: Delete unused code before adding new code
+  - **Lean Patterns**: Prefer native APIs over heavy libraries
+  - **Bundle Optimization**: Minimize imports and dependencies
   - `camelCase` for variables/functions
   - `PascalCase` for types/classes
   - `kebab-case` for file names (e.g., `wallet-utils.ts`)
@@ -101,6 +113,9 @@
   - Avoid implicit globals
 
 - **Implementation Checklist**:
+  - [ ] **Remove unused code first** - Delete before adding
+  - [ ] **Audit dependencies** - Remove unused imports and packages
+  - [ ] **Optimize bundle size** - Measure impact of changes
   - [ ] Update `src/index.ts` for new SDK exports
   - [ ] Update HTML templates if needed (`vWallet-dev.html` and/or `src/smartwallet-dev.html`; never touch generated outputs)
   - [ ] Test build process with `npm run build`
@@ -114,6 +129,8 @@
 - **Injection Test**: `npm run inject` (Injects bundle into `vWallet.html` and regenerates `src/smartwallet.html` from `src/smartwallet-dev.html`)
 
 **Monitor for:**
+- **Bundle size changes** - Track size impact of all modifications
+- **Load time performance** - Measure page load and script execution
 - Browser console errors in wallet operations
 - Build process completion and bundle size
 - HTML injection success
@@ -191,7 +208,16 @@ open src/smartwallet.html
 - **Security Review**: Note any cryptographic or key management changes
 
 ## Security & Configuration Tips
+- **Lean Security**: Remove debug code and logging from production
+- **Bundle Optimization**: Strip unused code paths and dead imports
 - **Secrets Management**: Never commit keys; use `.env` for `CLOUDFLARE_TUNNEL_TOKEN`
 - **Production Safety**: Remove/guard key logging in production builds
 - **HTTPS Security**: Provided by Cloudflare Tunnel (recommended for production)
 - **Bundle Security**: Ensure IIFE bundle doesn't expose sensitive data
+
+## Performance Guidelines
+- **Code Deletion Priority**: Always consider removing features before adding them
+- **Dependency Audit**: Regularly review and remove unused packages
+- **Bundle Analysis**: Use tools to identify largest imports and optimize
+- **Native APIs First**: Prefer browser APIs over third-party libraries when possible
+- **Lazy Loading**: Load features only when needed

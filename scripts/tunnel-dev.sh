@@ -126,7 +126,7 @@ info "Cloudflare public URL: $PUBLIC_URL"
 # Auto-open browser when ready
 auto_open() {
   local vv_url="$PUBLIC_URL"
-  local sw_url="$PUBLIC_URL/src/smartwallet-dev.html"
+  local sw_url="$PUBLIC_URL/src/smartwallet.html"
   local open_sw="${VWALLET_OPEN_SMARTWALLET:-true}"
   # Normalize boolean-like values
   case "${open_sw,,}" in
@@ -187,7 +187,7 @@ echo "║                      🍷vWallet Ready!                      "
 echo "╠════════════════════════════════════════════════════════════╝"
 echo "║ 🌐 Tunnel URLs:"
 echo "║       - $PUBLIC_URL"
-echo "║       - $PUBLIC_URL/src/smartwallet-dev.html"
+echo "║       - $PUBLIC_URL/src/smartwallet.html"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
