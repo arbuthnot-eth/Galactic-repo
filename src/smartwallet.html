@@ -4371,19 +4371,20 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                             
                             // Filter for Sui-compatible wallets only
                             const suiWallets = allWallets.filter(wallet => {
-                                // Check for Sui-specific features
-                                const hasSuiConnect = wallet.features && (
-                                    wallet.features['sui:connect'] || 
-                                    wallet.features['sui:signAndExecuteTransaction'] ||
-                                    wallet.features['standard:connect']
-                                );
-                                
-                                // Check for Sui chains
-                                const supportsSui = wallet.chains && wallet.chains.some(chain => 
+                                // Check for Sui chains first (most reliable)
+                                const supportsSui = wallet.chains && wallet.chains.some(chain =>
                                     chain.includes('sui:') || chain === 'sui'
                                 );
-                                
-                                return hasSuiConnect || supportsSui;
+
+                                // Check for Sui-specific features
+                                const hasSuiConnect = wallet.features && (
+                                    wallet.features['sui:connect'] ||
+                                    wallet.features['sui:signAndExecuteTransaction']
+                                );
+
+                                // Only include if it explicitly supports Sui chains OR has Sui-specific features
+                                // Exclude wallets that only have generic 'standard:connect' without Sui chain support
+                                return supportsSui || hasSuiConnect;
                             });
                             
                                         openWalletModal(suiWallets);
@@ -5711,6 +5712,10 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                     if (overlay) {
                         overlay.addEventListener('click', function(ev){ if (ev.target === overlay) closeWalletModal(); });
                     }
+                    const closeButton = document.getElementById('walletModalClose');
+                    if (closeButton) {
+                        closeButton.addEventListener('click', () => closeWalletModal());
+                    }
                     document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') closeWalletModal(); });
                 } catch (e) {}
             });
@@ -5962,7 +5967,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
       <div class="modal" role="document">
         <div class="modal-header">
           <h4 id="walletModalTitle" class="modal-title">Select a Sui Wallet</h4>
-          <button id="walletModalClose" class="modal-close" onclick="(function(){ try{ closeWalletModal(); }catch(e){} })()" aria-label="Close">✕</button>
+          <button id="walletModalClose" class="modal-close" aria-label="Close">✕</button>
         </div>
         <div id="walletModalBody" class="modal-body">
           <div id="walletModalList"></div>

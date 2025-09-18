@@ -2061,6 +2061,10 @@
                     if (overlay) {
                         overlay.addEventListener('click', function(ev){ if (ev.target === overlay) closeWalletModal(); });
                     }
+                    const closeButton = document.getElementById('walletModalClose');
+                    if (closeButton) {
+                        closeButton.addEventListener('click', () => closeWalletModal());
+                    }
                     document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') closeWalletModal(); });
                 } catch (e) {}
             });
@@ -2312,7 +2316,7 @@
       <div class="modal" role="document">
         <div class="modal-header">
           <h4 id="walletModalTitle" class="modal-title">Select a Sui Wallet</h4>
-          <button id="walletModalClose" class="modal-close" onclick="(function(){ try{ closeWalletModal(); }catch(e){} })()" aria-label="Close">✕</button>
+          <button id="walletModalClose" class="modal-close" aria-label="Close">✕</button>
         </div>
         <div id="walletModalBody" class="modal-body">
           <div id="walletModalList"></div>
