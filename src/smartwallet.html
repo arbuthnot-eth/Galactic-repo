@@ -4119,11 +4119,14 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                     }
                     controls.style.display = 'none';
                     if (infoPanel) infoPanel.style.display = 'block';
+                    setSmartWalletManagementVisible(Boolean(currentWallet && currentWallet.type !== 'view_only'));
                 } else {
                     controls.open = true;
                     walletControlsCollapsed = false;
                     controls.style.display = '';
                     if (infoPanel) infoPanel.style.display = 'none';
+                    setSmartWalletManagementVisible(false);
+                    hideSmartWalletOperations();
                 }
             } catch (_) {}
         }
@@ -5137,7 +5140,8 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 updateWalletConnectionControls(false);
                 showCurrentWalletAddress('', { skipReverse: true });
                 document.getElementById('currentBalance').textContent = 'Loading...';
-                
+
+                hideSmartWalletOperations();
                 logOutput('Wallet disconnected');
             } catch (error) {
                 logOutput('Error disconnecting wallet: ' + error.message, true);
@@ -5428,6 +5432,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
 
                 if (objects.data.length === 0) {
                     walletsList.innerHTML = '<p>No smart wallets found</p>';
+                    hideSmartWalletOperations();
                     logOutput('No smart wallets found');
                     return;
                 }
@@ -5465,10 +5470,39 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             }
         }
 
+        function setSmartWalletManagementVisible(shouldShow) {
+            const managementSection = document.getElementById('smartWalletManagementSection');
+            if (managementSection) {
+                managementSection.style.display = shouldShow ? 'block' : 'none';
+                managementSection.classList.toggle('visible', Boolean(shouldShow));
+            }
+        }
+
+        function hideSmartWalletOperations() {
+            const operationsSection = document.getElementById('smartWalletOperations');
+            if (operationsSection) {
+                operationsSection.style.display = 'none';
+                operationsSection.classList.remove('visible');
+            }
+
+            const selectedWalletElement = document.getElementById('selectedWalletId');
+            if (selectedWalletElement) {
+                selectedWalletElement.textContent = 'None';
+            }
+        }
+
+        function showSmartWalletOperations() {
+            const operationsSection = document.getElementById('smartWalletOperations');
+            if (operationsSection) {
+                operationsSection.style.display = 'block';
+                operationsSection.classList.add('visible');
+            }
+        }
+
         // Select a smart wallet for operations
         window.selectSmartWallet = function(walletId) {
             document.getElementById('selectedWalletId').textContent = walletId;
-            document.getElementById('smartWalletOperations').style.display = 'block';
+            showSmartWalletOperations();
             logOutput(`Selected smart wallet: ${walletId}`);
         }
 
@@ -5815,6 +5849,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             if (mainContent) mainContent.style.display = 'none';
 
             updateWalletConnectionControls(false);
+            setSmartWalletManagementVisible(false);
             
             waitForSDKs().then(async () => {
                 await initializeSuiClient();
@@ -5840,10 +5875,16 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                                 mainContent.style.display = 'block';
                                 setTimeout(() => {
                                     const allSections = document.querySelectorAll('.section');
+                                    const operationsSection = document.getElementById('smartWalletOperations');
                                     allSections.forEach(section => {
+                                        if (operationsSection && section === operationsSection) {
+                                            return;
+                                        }
                                         section.style.display = 'block';
                                         section.classList.add('visible');
                                     });
+                                    setSmartWalletManagementVisible(false);
+                                    hideSmartWalletOperations();
                                     mainContent.classList.add('loaded');
                                 }, 300);
                             }
@@ -5891,51 +5932,6 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             Interface for deployed smart contracts
         </p>
         
-        <div class="section">
-            <details class="section-toggle" id="contractInfoToggle">
-                <summary>📦 Contract Information</summary>
-                <div class="contract-card">
-                    <h4>Deployed Package</h4>
-                    <div class="address-display">Package ID:
-                        <span id="packageIdDisplay" class="address-value">Not set</span>
-                        <button type="button" class="copy-btn" data-copy-target="packageIdDisplay" aria-label="Copy package ID" title="Copy package ID">Copy</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="packageIdInput">Set Package ID for current network</label>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <input id="packageIdInput" type="text" placeholder="0x..." style="flex:1;" />
-                            <button onclick="savePackageIdOverride()" style="white-space:nowrap;">Save</button>
-                            <button onclick="clearPackageIdOverride()" style="white-space:nowrap; background:#6c757d;">Clear</button>
-                        </div>
-                        <div style="font-size:11px; color:#a0b3c5; margin-top:6px;">Overrides are stored in localStorage per network.</div>
-                    </div>
-                    <p><strong>Modules:</strong> core, roster, multisig</p>
-                    <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
-                    <div class="form-group">
-                        <label>Network Selection:</label>
-                        <select id="networkSelect" onchange="changeNetwork()">
-                            <option value="devnet">Devnet</option>
-                            <option value="testnet" selected>Testnet</option>
-                            <option value="mainnet">Mainnet</option>
-                        </select>
-                    </div>
-                    <div class="contract-card-group">
-                        <h4>Roster Management</h4>
-                        <p style="margin-top: 8px;">The roster tracks wallet memberships across the system.</p>
-                        <div class="form-group" style="margin-top: 12px;">
-                            <div class="address-display">Roster ID:
-                                <span id="rosterId" class="address-value">Not found</span>
-                                <button type="button" class="copy-btn" data-copy-target="rosterId" aria-label="Copy roster ID" title="Copy roster ID">Copy</button>
-                            </div>
-                        </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-                            <button onclick="initRoster()">Initialize Roster</button>
-                            <button onclick="findRoster()">Find Roster</button>
-                        </div>
-                    </div>
-                </div>
-            </details>
-        </div>
 
         <div class="section">
             <div class="wallet-connection-header">
@@ -6000,7 +5996,7 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
             </div>
         </div>
 
-        <div class="section">
+        <div id="smartWalletManagementSection" class="section" style="display: none;">
             <h3>Smart Wallet Management</h3>
             <div class="form-group">
                 <label>Wallet Name:</label>
@@ -6090,6 +6086,52 @@ fragment PAGINATE_TRANSACTION_LISTS on TransactionBlock {
                 </div>
                 <button onclick="depositToWallet()">Deposit SUI</button>
             </div>
+        </div>
+
+        <div id="contract-info" class="section">
+            <details class="section-toggle" id="contractInfoToggle">
+                <summary>📦 Contract Information</summary>
+                <div class="contract-card">
+                    <h4>Deployed Package</h4>
+                    <div class="address-display">Package ID:
+                        <span id="packageIdDisplay" class="address-value">Not set</span>
+                        <button type="button" class="copy-btn" data-copy-target="packageIdDisplay" aria-label="Copy package ID" title="Copy package ID">Copy</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="packageIdInput">Set Package ID for current network</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input id="packageIdInput" type="text" placeholder="0x..." style="flex:1;" />
+                            <button onclick="savePackageIdOverride()" style="white-space:nowrap;">Save</button>
+                            <button onclick="clearPackageIdOverride()" style="white-space:nowrap; background:#6c757d;">Clear</button>
+                        </div>
+                        <div style="font-size:11px; color:#a0b3c5; margin-top:6px;">Overrides are stored in localStorage per network.</div>
+                    </div>
+                    <p><strong>Modules:</strong> core, roster, multisig</p>
+                    <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
+                    <div class="form-group">
+                        <label>Network Selection:</label>
+                        <select id="networkSelect" onchange="changeNetwork()">
+                            <option value="devnet">Devnet</option>
+                            <option value="testnet" selected>Testnet</option>
+                            <option value="mainnet">Mainnet</option>
+                        </select>
+                    </div>
+                    <div class="contract-card-group">
+                        <h4>Roster Management</h4>
+                        <p style="margin-top: 8px;">The roster tracks wallet memberships across the system.</p>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <div class="address-display">Roster ID:
+                                <span id="rosterId" class="address-value">Not found</span>
+                                <button type="button" class="copy-btn" data-copy-target="rosterId" aria-label="Copy roster ID" title="Copy roster ID">Copy</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                            <button onclick="initRoster()">Initialize Roster</button>
+                            <button onclick="findRoster()">Find Roster</button>
+                        </div>
+                    </div>
+                </div>
+            </details>
         </div>
 
         <div class="section">
