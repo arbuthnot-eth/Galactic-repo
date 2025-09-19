@@ -24,6 +24,10 @@
     </script>
     <!-- Critical CSS for immediate rendering -->
     <style>
+        html {
+            height: 100%;
+            overflow-y: auto;
+        }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             max-width: 900px;
@@ -32,6 +36,8 @@
             background: linear-gradient(135deg, #1a2332 0%, #2a3d52 100%);
             color: #f4f1ef;
             min-height: 100vh;
+            box-sizing: border-box;
+            overflow-x: hidden;
         }
         .container {
             background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%);
@@ -248,6 +254,19 @@
         .wallet-card-icon { width: 100%; height: 100%; object-fit: cover; display: block; }
         .wallet-card-content { flex: 1; min-width: 0; }
         .wallet-card-name { font-weight: 600; color: #cfe4f7; }
+
+        /* zkLogin provider selection styles */
+        .zklogin-providers { position: relative; display: inline-block; width: 100%; }
+        .zklogin-providers .wallet-card { margin: 0; }
+        .zklogin-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; }
+        .zklogin-dropdown.visible { display: block; }
+        .zklogin-provider { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease; }
+        .zklogin-provider:hover { background: rgba(69,139,189,.15); }
+        .zklogin-provider:first-child { border-radius: 8px 8px 0 0; }
+        .zklogin-provider:last-child { border-radius: 0 0 8px 8px; }
+        .zklogin-provider:only-child { border-radius: 8px; }
+        .zklogin-provider-icon { width: 24px; height: 24px; border-radius: 4px; }
+        .zklogin-provider-name { font-weight: 500; }
     </style>
     
     <!-- BUNDLE_PLACEHOLDER -->
@@ -840,6 +859,29 @@
             return true;
         }
 
+        // zkLogin provider configuration
+        const ZKLOGIN_PROVIDERS = {
+            google: {
+                name: 'Google',
+                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIyLjU2IDEyLjI1YzAtLjc4LS4wNy0xLjUzLS4yLTIuMjVIMTJ2NC4yNmg1LjkyYy0uMjYgMS4zNy0xLjA0IDIuNTMtMi4yMSAzLjMxdjIuNzdoMy41N2MyLjA4LTEuOTIgMy4yOC00Ljc0IDMuMjgtOC4wOXoiIGZpbGw9IiM0Mjg1RjQiLz4KPHBhdGggZD0iTTEyIDIzYzIuOTcgMCA1LjQ2LS45OCA3LjI4LTIuNjZsLTMuNTctMi43N2MtLjk4LjY2LTIuMjMgMS4wNi0zLjcxIDEuMDYtMi44NiAwLTUuMjktMS45My02LjE2LTQuNTNIMi4xOHYyLjg0QzMuOTkgMjAuNTMgNy43IDIzIDEyIDIzeiIgZmlsbD0iIzM0QTg1MyIvPgo8cGF0aCBkPSJNNS44NCAxNC4wOWMtLjIyLS42Ni0uMzUtMS4zNi0uMzUtMi4wOXMuMTMtMS40My4zNS0yLjA5VjcuMDdIMi4xOEM3LjQgOS4yIDEgMTAuNiAxIDEyUzEuNCAxNC44IDIuMTggMTYuOTNsLTEuMTYtMi44NFYxNC4wOXoiIGZpbGw9IiNGQkJDMDQiLz4KPHBhdGggZD0iTTEyIDQuNzVjMS42MSAwIDMuMDYuNTUgNC4yMiAxLjY0bDMuMTUtMy4xNUMxNy40NSAxLjA5IDE0Ljk3IDAgMTIgMCA3LjcgMCAzLjk5IDIuNDcgMi4xOCA3LjA3bDMuNjYgMi44NGMuODctMi42IDMuMy00LjUzIDYuMTYtNC41M3oiIGZpbGw9IiNFQTQzMzUiLz4KPC9zdmc+',
+                clientId: 'GOOGLE_CLIENT_ID'
+            },
+            facebook: {
+                name: 'Meta',
+                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTI0IDEyQzI0IDUuMzczIDE4LjYyNyAwIDEyIDAgUzAgNS4zNzMgMCAxMmMwIDUuOTkgNC4zODggMTAuOTU0IDEwLjEyNSAxMS45MjdWMTUuNDY5SDcuMDc4VjEyaDMuMDQ3VjkuMzU2YzAtMy4wMDcgMS43OTItNC42NjkgNC41MzMtNC42NjkgMS4zMTIgMCAyLjY4Ni4yMzQgMi42ODYuMjM0djIuOTUzSDE2LjgzYy0xLjQ5MSAwLTEuOTU1LjkyNS0xLjk1NSAxLjg3NVYxMmgyLjU5M2wtLjEyNSAzLjQ2OUgxNS45MzdWMjMuOTI3QzIwLjYxMiAyMi45NTQgMjQuNTQgMTcuOTkgMjQgMTJaIiBmaWxsPSIjMTg3N0YyIi8+Cjwvc3ZnPg==',
+                clientId: 'FACEBOOK_CLIENT_ID'
+            },
+            apple: {
+                name: 'Apple',
+                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE3LjA1IDIwLjI4Yy0uOTguOTMtMi4wNSAxLjU1LTMuMjEgMS44Ni0xLjE2LjMxLTIuMzQuMzEtMy41LjAxLTEuMTYtLjMxLTIuMjMtLjkzLTMuMjEtMS44Ni0xLjk0LTEuODItMy4xNy00LjM5LTMuNjktNy4zcy4xNy01Ljk4IDEuNzItOC41OGMuNzctMS4zIDEuODctMi4zNyAzLjE3LTMuMTFDOS42OC44OTMgMTEuMzQuNDk3IDEzIC40OTdjMS42NiAwIDMuMzIuMzk2IDQuOTUgMS4xNzNjMS4zLjc0IDIuNCAxLjgxIDMuMTcgMy4xMSAxLjU1IDIuNiAyLjI0IDUuNjggMS43MiA4LjU4cy0xLjc1IDUuNDgtMy42OSA3LjNabS0zLjEyLTE2LjI3Yy0uNzYtLjA3LTEuNTMuMDMtMi4yNC4yOC0uNzEuMjUtMS4zNy42NC0xLjkxIDEuMTJhOS4zMyA5LjMzIDAgMDAtMS4zMyAyLjQzIDUuMDYgNS4wNiAwIDAwLS4yIDIuODljLjI2IDEgLjggMS44OCAxLjU2IDIuNTEtLjI2LS4wNy0uNTMtLjEyLS44MS0uMTMtLjU5LS4wMS0xLjE3LjA5LTEuNzEuMzJzLTEuMDQuNTktMS40NCAxLjAzYy0uNC40NC0uNzMuOTUtLjk2IDEuNWEyLjE5IDIuMTkgMCAwMC0uMDQgMS42NmMuMTIuNTQuMzUgMS4wNS42NyAxLjQ5LjMyLjQ0LjcxLjgxIDEuMTYgMS4wOS45LjU2IDEuOTYuODUgMy4wNS44NS4yMiAwIC40NC0uMDEuNjYtLjA0YTMuODcgMy44NyAwIDAwMS43Ni0uNjNjLjUzLS4zOCAxLjAxLS44NSAxLjQzLTEuMzlhNS4xIDUuMSAwIDAwMS0yLjAzYy4yLS44Mi4yNS0xLjY4LjEzLTIuNTJhMy44NCAzLjg0IDAgMDAtLjU5LTEuNzhjLS4yOS0uNTQtLjY5LTEtMS4xNy0xLjM2YTQuMjEgNC4yMSAwIDAwLTEuNzItLjY5Yy0uNjItLjE0LTEuMjUtLjE0LTEuODctLjAxWm0yLjk4LTMuMTVjLjI2LS45LjU5LTEuODYgMi4yMy0xLjg2IDEuNjMgMCAxLjcuOTYgMS40NiAxLjg2QTE5LjczIDE5LjczIDAgMDExNi45MS44NVoiIGZpbGw9IiNmZmZmZmYiLz4KPC9zdmc+',
+                clientId: 'APPLE_CLIENT_ID'
+            }
+        };
+
+        function createZkLoginProviderIcon(provider) {
+            return ZKLOGIN_PROVIDERS[provider]?.icon || makeWalletIcon('ZK', '#6c4bcc');
+        }
+
         async function ensureZkLoginHelpers() {
             if (window.SuiSDK?.ZkLogin?.decodeJwt) {
                 return;
@@ -1103,12 +1145,59 @@
             }
         }
 
+        function toggleZkLoginProviders(event, walletIndex) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('zkloginDropdown' + walletIndex);
+            if (!dropdown) return;
+
+            // Close any other open dropdowns
+            const allDropdowns = document.querySelectorAll('.zklogin-dropdown');
+            allDropdowns.forEach(d => {
+                if (d !== dropdown) d.classList.remove('visible');
+            });
+
+            // Toggle current dropdown
+            dropdown.classList.toggle('visible');
+
+            // Close dropdown when clicking outside
+            const closeHandler = (e) => {
+                if (!dropdown.contains(e.target) && !e.target.closest('.wallet-card')) {
+                    dropdown.classList.remove('visible');
+                    document.removeEventListener('click', closeHandler);
+                }
+            };
+
+            if (dropdown.classList.contains('visible')) {
+                setTimeout(() => document.addEventListener('click', closeHandler), 0);
+            }
+        }
+
+        async function connectZkLoginProvider(provider) {
+            try {
+                // Close all dropdowns
+                document.querySelectorAll('.zklogin-dropdown').forEach(d => d.classList.remove('visible'));
+
+                // Close wallet modal
+                closeWalletModal();
+
+                if (provider === 'google') {
+                    await handleZkLoginConnect();
+                } else {
+                    // For now, show a message that other providers are coming soon
+                    logOutput(`🚧 ${ZKLOGIN_PROVIDERS[provider]?.name || provider} zkLogin support coming soon. Using Google for now...`);
+                    await handleZkLoginConnect();
+                }
+            } catch (error) {
+                logOutput('zkLogin provider connection failed: ' + error.message, true);
+            }
+        }
+
         function buildPrimaryWalletEntries() {
             return [
                 {
                     type: 'custom',
                     action: 'zkLogin',
-                    name: 'zkLogin (Google)',
+                    name: 'zkLogin',
                     icon: makeWalletIcon('ZK', '#6c4bcc')
                 },
                 {
@@ -1250,8 +1339,8 @@
                     const shouldShowManagement = Boolean(currentWallet && currentWallet.type !== 'view_only');
                     scheduleSmartWalletManagementToggle(shouldShowManagement);
                 } else {
-                    controls.open = true;
-                    walletControlsCollapsed = false;
+                    controls.open = false;
+                    walletControlsCollapsed = true;
                     controls.style.display = '';
                     if (infoPanel) infoPanel.style.display = 'none';
                     if (pendingManagementToggle && typeof pendingManagementToggle.cancel === 'function') {
@@ -2074,12 +2163,38 @@
                     var safeName = escapeHtml(name);
                     var safeIcon = escapeHtml(iconSrc);
 
-                    html += '\n<button type="button" class="wallet-card" onclick="connectWalletByIndex(' + i + ')">\n' +
-                            '  <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
-                            '  <div class="wallet-card-content">\n' +
-                            '    <div class="wallet-card-name">' + safeName + '</div>\n' +
-                            '  </div>\n' +
-                            '</button>';
+                    // Special handling for zkLogin to show provider selection
+                    if (e.type === 'custom' && e.action === 'zkLogin') {
+                        html += '\n<div class="zklogin-providers">\n' +
+                                '  <button type="button" class="wallet-card" onclick="toggleZkLoginProviders(event, ' + i + ')">\n' +
+                                '    <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
+                                '    <div class="wallet-card-content">\n' +
+                                '      <div class="wallet-card-name">' + safeName + '</div>\n' +
+                                '    </div>\n' +
+                                '  </button>\n' +
+                                '  <div class="zklogin-dropdown" id="zkloginDropdown' + i + '">\n' +
+                                '    <button type="button" class="zklogin-provider" onclick="connectZkLoginProvider(\'google\')">\n' +
+                                '      <img src="' + escapeHtml(createZkLoginProviderIcon('google')) + '" alt="Google" class="zklogin-provider-icon" loading="lazy">\n' +
+                                '      <span class="zklogin-provider-name">Google</span>\n' +
+                                '    </button>\n' +
+                                '    <button type="button" class="zklogin-provider" onclick="connectZkLoginProvider(\'facebook\')">\n' +
+                                '      <img src="' + escapeHtml(createZkLoginProviderIcon('facebook')) + '" alt="Meta" class="zklogin-provider-icon" loading="lazy">\n' +
+                                '      <span class="zklogin-provider-name">Meta</span>\n' +
+                                '    </button>\n' +
+                                '    <button type="button" class="zklogin-provider" onclick="connectZkLoginProvider(\'apple\')">\n' +
+                                '      <img src="' + escapeHtml(createZkLoginProviderIcon('apple')) + '" alt="Apple" class="zklogin-provider-icon" loading="lazy">\n' +
+                                '      <span class="zklogin-provider-name">Apple</span>\n' +
+                                '    </button>\n' +
+                                '  </div>\n' +
+                                '</div>';
+                    } else {
+                        html += '\n<button type="button" class="wallet-card" onclick="connectWalletByIndex(' + i + ')">\n' +
+                                '  <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
+                                '  <div class="wallet-card-content">\n' +
+                                '    <div class="wallet-card-name">' + safeName + '</div>\n' +
+                                '  </div>\n' +
+                                '</button>';
+                    }
                 }
             }
             list.innerHTML = html;
@@ -2096,6 +2211,9 @@
             document.body.style.overflow = '';
         }
 
+        window.toggleZkLoginProviders = toggleZkLoginProviders;
+        window.connectZkLoginProvider = connectZkLoginProvider;
+
         window.connectWalletByIndex = async function(i) {
             try {
                 const entry = (window.availableSuiWallets && window.availableSuiWallets.length) ? window.availableSuiWallets[i] : null;
@@ -2109,7 +2227,8 @@
                     await connectViaPhantomSui();
                 } else if (entry.type === 'custom') {
                     if (entry.action === 'zkLogin') {
-                        await handleZkLoginConnect();
+                        // zkLogin now uses provider selection dropdown instead of direct connection
+                        throw new Error('zkLogin should use provider selection - this path should not be reached');
                     } else if (entry.action === 'passkey') {
                         await handlePasskeyStub();
                     } else {
@@ -3372,7 +3491,7 @@
                 <button id="walletHeaderAction" class="primary-btn connect-wallet-inline">Connect</button>
             </div>
 
-            <details id="walletConnectionControls" class="section-toggle" open>
+            <details id="walletConnectionControls" class="section-toggle">
                 <summary>
                     <span>Wallet Connection Controls</span>
                     <span id="walletConnectionStatus" class="summary-status">Not connected</span>
