@@ -757,6 +757,7 @@
                 response_type: 'id_token',
                 scope: 'openid email profile',
                 nonce: nonce,
+                prompt: 'select_account',
                 state: 'zklogin_smartwallet'
             });
             return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
