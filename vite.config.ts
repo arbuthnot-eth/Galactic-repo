@@ -3,9 +3,27 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   build: {
     lib: {
-      entry: './src/index.ts',
-      name: 'SuiSDKBundle',
-      fileName: 'sui-sdk-bundle',
+      entry: process.env.BUILD_TARGET === 'extended'
+        ? './src/index-extended.ts'
+        : process.env.BUILD_TARGET === 'minimal'
+        ? './src/index-minimal.ts'
+        : process.env.BUILD_TARGET === 'zklogin'
+        ? './src/zklogin-helpers.ts'
+        : './src/index-core.ts',
+      name: process.env.BUILD_TARGET === 'extended'
+        ? 'SuiSDKExtended'
+        : process.env.BUILD_TARGET === 'minimal'
+        ? 'SuiSDKMinimal'
+        : process.env.BUILD_TARGET === 'zklogin'
+        ? 'SuiSDKZkLoginHelpers'
+        : 'SuiSDKCore',
+      fileName: process.env.BUILD_TARGET === 'extended'
+        ? 'sui-sdk-extended'
+        : process.env.BUILD_TARGET === 'minimal'
+        ? 'sui-sdk-minimal'
+        : process.env.BUILD_TARGET === 'zklogin'
+        ? 'zklogin-helpers'
+        : 'sui-sdk-core',
       formats: ['iife'],
     },
     minify: true,
@@ -15,6 +33,13 @@ export default defineConfig({
         inlineDynamicImports: true,
       },
     },
+    outDir: process.env.BUILD_TARGET === 'extended'
+      ? 'dist-temp-extended'
+      : process.env.BUILD_TARGET === 'minimal'
+      ? 'dist-temp-minimal'
+      : process.env.BUILD_TARGET === 'zklogin'
+      ? 'dist-temp-zklogin'
+      : 'dist',
   },
   server: {
     host: true, // Listen on all interfaces

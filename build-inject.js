@@ -16,22 +16,89 @@ const htmlFiles = [
   }
 ];
 
-const bundlePath = path.join(__dirname, 'dist/sui-sdk-bundle.iife.js');
+const coreBundlePath = path.join(__dirname, 'dist/sui-sdk-core.iife.js');
+const minimalBundlePath = path.join(__dirname, 'dist/sui-sdk-minimal.iife.js');
+const extendedBundlePath = path.join(__dirname, 'dist/sui-sdk-extended.iife.js');
+const zkLoginBundlePath = path.join(__dirname, 'dist/zklogin-helpers.iife.js');
+
+/**
+ * Wrap a bundle in a base64 loader so the browser never parses the raw code inline.
+ * This avoids HTML parser edge-cases (e.g. unexpected identifiers) while keeping
+ * the single-file build behavior for SmartWallet and vWallet outputs.
+ */
+function createInlineLoader(bundle, { label }) {
+  if (!bundle) return '';
+
+  const base64 = Buffer.from(bundle, 'utf8').toString('base64');
+
+  const loaderLines = [
+    '(function(){',
+    '  try {',
+    `    const bundleBase64 = '${base64}';`,
+    "    const decode = typeof globalThis.atob === 'function'",
+    "      ? (value) => globalThis.atob(value)",
+    "      : (value) => {",
+    "          if (globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {",
+    "            return globalThis.Buffer.from(value, 'base64').toString('utf8');",
+    '          }',
+    "          throw new Error('Base64 decoder unavailable in this environment');",
+    '        };',
+    '    const execute = new Function(decode(bundleBase64));',
+    '    execute();',
+    '  } catch (error) {',
+    `    console.error('Failed to execute inline ${label} bundle:', error);`,
+    '  }',
+    '}())'
+  ];
+
+  return `<script>${loaderLines.join('')}</script>`;
+}
 
 try {
-  // Check if bundle exists
-  if (!fs.existsSync(bundlePath)) {
-    console.error('❌ Bundle not found! Please run "npm run build" first.');
+  // Check if bundles exist
+  const hasCore = fs.existsSync(coreBundlePath);
+  const hasMinimal = fs.existsSync(minimalBundlePath);
+  const hasZkLogin = fs.existsSync(zkLoginBundlePath);
+
+  if (!hasCore && !hasMinimal) {
+    console.error('❌ No core bundle found! Please run "npm run build" first.');
     process.exit(1);
   }
-  
-  // Read the bundled JavaScript once
-  let bundle = fs.readFileSync(bundlePath, 'utf8');
-  // Escape closing script tags to keep HTML parsers happy when inlining
-  // This prevents premature </script> termination in the single-file HTML.
-  bundle = bundle.replace(/<\/script>/gi, '<\\/script>');
-  console.log('📦 Bundle loaded successfully');
-  
+
+  // Read the core bundle for vWallet
+  let coreBundle = '';
+  if (hasCore) {
+    coreBundle = fs.readFileSync(coreBundlePath, 'utf8');
+    coreBundle = coreBundle.replace(/<\/script>/gi, '<\\/script>');
+    console.log('📦 Core bundle loaded successfully');
+  }
+
+  // Read the minimal bundle for SmartWallet
+  let minimalBundle = '';
+  if (hasMinimal) {
+    minimalBundle = fs.readFileSync(minimalBundlePath, 'utf8');
+    minimalBundle = minimalBundle.replace(/<\/script>/gi, '<\\/script>');
+    console.log('📦 Minimal bundle loaded successfully');
+  }
+
+  // Check if extended bundle exists (external loading)
+  let extendedBundle = '';
+  const hasExtended = fs.existsSync(extendedBundlePath);
+  if (hasExtended) {
+    extendedBundle = fs.readFileSync(extendedBundlePath, 'utf8');
+    extendedBundle = extendedBundle.replace(/<\/script>/gi, '<\\/script>');
+    console.log('📦 Extended bundle loaded successfully');
+  }
+
+  let zkLoginBundle = '';
+  let zkLoginBundleBase64 = '';
+  if (hasZkLogin) {
+    zkLoginBundle = fs.readFileSync(zkLoginBundlePath, 'utf8');
+    zkLoginBundle = zkLoginBundle.replace(/<\/script>/gi, '<\\/script>');
+    zkLoginBundleBase64 = Buffer.from(zkLoginBundle, 'utf8').toString('base64');
+    console.log('📦 zkLogin helper bundle loaded successfully');
+  }
+
   // Process each HTML file
   htmlFiles.forEach(file => {
     const inputPath = path.join(__dirname, file.input);
@@ -48,8 +115,51 @@ try {
     // Read the base HTML file
     let html = fs.readFileSync(inputPath, 'utf8');
     
-    // Inject the bundle at the placeholder
-    html = html.replace('<!-- BUNDLE_PLACEHOLDER -->', `<script>${bundle}</script>`);
+    // Choose bundle based on target: minimal for SmartWallet, core for vWallet
+    const useMinimal = file.name === 'SmartWallet' && hasMinimal;
+    const bundleToUse = useMinimal ? minimalBundle : coreBundle;
+    const bundleName = useMinimal ? 'minimal' : 'core';
+
+    const inlineLoader = createInlineLoader(bundleToUse, { label: `${file.name} ${bundleName}` });
+    let bundleReplacement = inlineLoader;
+
+    // For SmartWallet, only load core bundle - extended features on demand only
+    if (file.name === 'SmartWallet') {
+      bundleReplacement += `
+    <script>
+      // SmartWallet performance optimization: Using ${bundleName} bundle
+      console.log('SmartWallet: ${bundleName} SDK loaded. Extended features available on request.');
+
+      // Function to load extended SDK if needed (not auto-loaded)
+      window.loadExtendedSDK = function() {
+        if (window.SuiSDK && window.SuiSDK.DappKit) {
+          console.log('Extended SDK already loaded');
+          return Promise.resolve();
+        }
+
+        console.log('Loading extended SDK on demand...');
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = '/dist/sui-sdk-extended.iife.js';
+          script.onload = () => {
+            console.log('Extended SDK loaded successfully');
+            resolve();
+          };
+          script.onerror = () => {
+            console.error('Failed to load extended SDK');
+            reject(new Error('Failed to load extended SDK'));
+          };
+          document.head.appendChild(script);
+        });
+      };
+      window.__SMARTWALLET_ZKLOGIN_BASE64 = '${zkLoginBundleBase64}';
+    </script>`;
+    } else if (hasExtended) {
+      // For main vWallet, load extended bundle immediately via loader
+      bundleReplacement += createInlineLoader(extendedBundle, { label: 'vWallet extended' });
+    }
+
+    html = html.replace('<!-- BUNDLE_PLACEHOLDER -->', bundleReplacement);
     
     // Add/replace favicon: if dev link exists, replace with data URL for single-file prod
     const faviconTxtPath = path.join(__dirname, 'assets', 'vWallet.txt');
@@ -66,7 +176,7 @@ try {
     }
     
     // Remove any dev-only script references (if they exist)
-    html = html.replace(/<script src="\.?\/dist\/sui-sdk-bundle\.iife\.js"><\/script>/g, '');
+    html = html.replace(/<script src="\.?\/dist\/sui-sdk-.*\.iife\.js"><\/script>/g, '');
     
     // Write the production HTML file (root)
     fs.writeFileSync(outputPath, html);

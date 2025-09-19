@@ -8,7 +8,7 @@
     <link rel="dns-prefetch" href="//fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Dev favicon: served from assets; injector may override in prod -->
-    <link rel="icon" type="image/png" href="/assets/vw-favicon.png">
+    <link rel="icon" type="image/png" href="/assets/favicon-128.png">
     <script>
         // Optimized favicon loading - defer until critical content loads
         window.addEventListener('load',function(){
@@ -74,7 +74,6 @@
         
         /* Hide main content until loaded */
         .main-content {
-            display: none;
             opacity: 0;
             transition: opacity 0.2s ease-out;
         }
@@ -266,6 +265,70 @@
                 document.head.appendChild(s);
             } catch(e){console.warn('Failed to attach dev SDK loader:', e);}
         })();
+
+        let zkLoginHelpersPromise=null;
+        window.__SMARTWALLET_ZKLOGIN_BASE64=window.__SMARTWALLET_ZKLOGIN_BASE64||'';
+
+        function decodeZkLoginBase64(value){
+            if(!value) return '';
+            const globalRef=typeof globalThis!=='undefined'?globalThis:window;
+            if(typeof globalRef.atob==='function'){
+                return globalRef.atob(value);
+            }
+            if(globalRef.Buffer&&typeof globalRef.Buffer.from==='function'){
+                return globalRef.Buffer.from(value,'base64').toString('utf8');
+            }
+            throw new Error('Base64 decoder unavailable');
+        }
+
+        function evaluateZkLoginSource(source){
+            const execute=new Function(source);
+            execute();
+        }
+
+        window.loadZkLoginHelpers=function(){
+            if(window.SuiSDK?.ZkLogin?.decodeJwt){
+                return Promise.resolve();
+            }
+            if(zkLoginHelpersPromise){
+                return zkLoginHelpersPromise;
+            }
+            zkLoginHelpersPromise=new Promise((resolve,reject)=>{
+                const inlineBundle=window.__SMARTWALLET_ZKLOGIN_BASE64;
+                if(inlineBundle){
+                    try{
+                        evaluateZkLoginSource(decodeZkLoginBase64(inlineBundle));
+                        if(window.SuiSDK?.ZkLogin?.decodeJwt){
+                            resolve();
+                            return;
+                        }
+                        console.warn('zkLogin helpers inline bundle executed but decodeJwt missing; falling back to network fetch.');
+                    }catch(error){
+                        console.warn('Inline zkLogin helper load failed, falling back to network bundle.', error);
+                    }
+                }
+
+                const script=document.createElement('script');
+                script.src='/dist/zklogin-helpers.iife.js';
+                script.async=true;
+                script.onload=function(){
+                    if(window.SuiSDK?.ZkLogin?.decodeJwt){
+                        resolve();
+                    }else{
+                        reject(new Error('zkLogin helpers script executed but decodeJwt is unavailable'));
+                    }
+                };
+                script.onerror=function(){
+                    reject(new Error('Failed to load zkLogin helper bundle'));
+                };
+                document.head.appendChild(script);
+            }).catch(error=>{
+                zkLoginHelpersPromise=null;
+                throw error;
+            });
+
+            return zkLoginHelpersPromise;
+        };
     </script>
     
     <script type="module">
@@ -319,9 +382,14 @@
         let rosterId = null; // Will store the shared Roster object ID
         let connectedWalletStandard = null; // Will store connected wallet standard wallet
         let walletControlsCollapsed = false;
+        let pendingManagementToggle = null;
         const suinsResolutionCache = new Map();
         const suinsReverseCache = new Map();
         let currentReverseLookupToken = 0;
+        let sdkReadyPromise = null;
+        let bootstrapPromise = null;
+        let rosterLookupPromise = null;
+        let rosterPrefetchDone = false;
 
         const walletIconCache = new Map();
         const WALLET_ICON_PRESETS = {
@@ -771,6 +839,19 @@
             return true;
         }
 
+        async function ensureZkLoginHelpers() {
+            if (window.SuiSDK?.ZkLogin?.decodeJwt) {
+                return;
+            }
+            if (typeof window.loadZkLoginHelpers !== 'function') {
+                throw new Error('zkLogin helper loader is not available');
+            }
+            await window.loadZkLoginHelpers();
+            if (!window.SuiSDK?.ZkLogin?.decodeJwt) {
+                throw new Error('zkLogin helpers failed to load correctly');
+            }
+        }
+
         async function handleZkLoginConnect() {
             try {
                 logOutput('🔐 Starting zkLogin (Google)...');
@@ -785,6 +866,8 @@
                 const authUrl = buildZkLoginAuthUrl(pendingZkLoginContext.nonce);
                 const jwt = await openOAuthPopup(authUrl);
                 logOutput('✅ Received id_token from provider');
+
+                await ensureZkLoginHelpers();
 
                 const { ZkLogin } = window.SuiSDK;
                 if (!ZkLogin) {
@@ -1097,6 +1180,37 @@
             }
         }
 
+        function scheduleSmartWalletManagementToggle(shouldShow) {
+            const runToggle = () => {
+                pendingManagementToggle = null;
+                try {
+                    setSmartWalletManagementVisible(shouldShow);
+                } catch (error) {
+                    console.warn('Failed to toggle smart wallet management visibility:', error.message || error);
+                }
+            };
+
+            if (pendingManagementToggle && typeof pendingManagementToggle.cancel === 'function') {
+                pendingManagementToggle.cancel();
+                pendingManagementToggle = null;
+            }
+
+            if (typeof window !== 'undefined') {
+                if (typeof window.requestAnimationFrame === 'function' && typeof window.cancelAnimationFrame === 'function') {
+                    const frameId = window.requestAnimationFrame(runToggle);
+                    pendingManagementToggle = { cancel: () => window.cancelAnimationFrame(frameId) };
+                    return;
+                }
+                if (typeof window.setTimeout === 'function') {
+                    const timeoutId = window.setTimeout(runToggle, 0);
+                    pendingManagementToggle = { cancel: () => window.clearTimeout(timeoutId) };
+                    return;
+                }
+            }
+
+            runToggle();
+        }
+
         function updateWalletConnectionControls(isConnected) {
             try {
                 const controls = document.getElementById('walletConnectionControls');
@@ -1132,12 +1246,17 @@
                     }
                     controls.style.display = 'none';
                     if (infoPanel) infoPanel.style.display = 'block';
-                    setSmartWalletManagementVisible(Boolean(currentWallet && currentWallet.type !== 'view_only'));
+                    const shouldShowManagement = Boolean(currentWallet && currentWallet.type !== 'view_only');
+                    scheduleSmartWalletManagementToggle(shouldShowManagement);
                 } else {
                     controls.open = true;
                     walletControlsCollapsed = false;
                     controls.style.display = '';
                     if (infoPanel) infoPanel.style.display = 'none';
+                    if (pendingManagementToggle && typeof pendingManagementToggle.cancel === 'function') {
+                        pendingManagementToggle.cancel();
+                        pendingManagementToggle = null;
+                    }
                     setSmartWalletManagementVisible(false);
                     hideSmartWalletOperations();
                 }
@@ -1274,13 +1393,23 @@
         }
 
         function waitForSDKs() {
-            return new Promise(resolve => {
-                if (window.SuiSDK) {
-                    resolve();
-                } else {
-                    setTimeout(() => waitForSDKs().then(resolve), 100);
-                }
+            if (window.SuiSDK) {
+                return Promise.resolve();
+            }
+            if (sdkReadyPromise) {
+                return sdkReadyPromise;
+            }
+            sdkReadyPromise = new Promise((resolve) => {
+                const poll = () => {
+                    if (window.SuiSDK) {
+                        resolve();
+                    } else {
+                        setTimeout(poll, 80);
+                    }
+                };
+                poll();
             });
+            return sdkReadyPromise;
         }
 
         function logOutput(message, isError = false) {
@@ -1519,6 +1648,9 @@
         // Initialize Sui client
         async function initializeSuiClient() {
             if (suiClient) return suiClient;
+            if (!window.SuiSDK) {
+                await waitForSDKs();
+            }
             if (!window.SuiSDK) throw new Error('SDK not loaded');
             const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
             suiClient = new SuiClient({ url: getFullnodeUrl(currentNetwork) });
@@ -1526,9 +1658,102 @@
             return suiClient;
         }
 
+        async function ensureSdkReady() {
+            await waitForSDKs();
+            return initializeSuiClient();
+        }
+
+        function scheduleBootstrapWork() {
+            if (bootstrapPromise) {
+                return bootstrapPromise;
+            }
+
+            const runBootstrap = async () => {
+                try {
+                    await ensureSdkReady();
+                } catch (error) {
+                    logOutput('Failed to initialize SDK: ' + error.message, true);
+                    return;
+                }
+
+                try {
+                    const pidEl = document.getElementById('packageIdDisplay');
+                    if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
+                    const pidInput = document.getElementById('packageIdInput');
+                    if (pidInput) pidInput.value = getPackageId() || '';
+                } catch (_) {}
+
+                try {
+                    await restoreZkLoginFromSession();
+                } catch (error) {
+                    logOutput('Failed to restore zkLogin session: ' + error.message, false);
+                }
+            };
+
+            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                bootstrapPromise = new Promise((resolve) => {
+                    window.requestIdleCallback(() => {
+                        runBootstrap().finally(resolve);
+                    }, { timeout: 1200 });
+                });
+            } else {
+                bootstrapPromise = new Promise((resolve) => {
+                    setTimeout(() => {
+                        runBootstrap().finally(resolve);
+                    }, 120);
+                });
+            }
+
+            return bootstrapPromise;
+        }
+
+        function queueRosterDiscovery() {
+            if (rosterPrefetchDone) {
+                return Promise.resolve();
+            }
+            if (rosterLookupPromise) {
+                return rosterLookupPromise;
+            }
+
+            const execute = async () => {
+                try {
+                    await findRoster();
+                } catch (error) {
+                    logOutput('Roster lookup failed: ' + error.message, false);
+                }
+            };
+
+            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                rosterLookupPromise = new Promise((resolve) => {
+                    const finalize = () => {
+                        rosterPrefetchDone = true;
+                        rosterLookupPromise = null;
+                        resolve();
+                    };
+                    window.requestIdleCallback(() => {
+                        execute().finally(finalize);
+                    }, { timeout: 2000 });
+                });
+            } else {
+                rosterLookupPromise = new Promise((resolve) => {
+                    const finalize = () => {
+                        rosterPrefetchDone = true;
+                        rosterLookupPromise = null;
+                        resolve();
+                    };
+                    setTimeout(() => {
+                        execute().finally(finalize);
+                    }, 200);
+                });
+            }
+
+            return rosterLookupPromise;
+        }
+
         // Wallet Management Functions
         async function createNewWallet() {
             try {
+                await ensureSdkReady();
                 logOutput('Creating new traditional wallet...');
                 const { Ed25519Keypair } = window.SuiSDK.Sui;
                 const keypair = Ed25519Keypair.generate();
@@ -1555,6 +1780,7 @@
             }
 
             try {
+                await ensureSdkReady();
                 logOutput('Restoring wallet from private key...');
                 const { Ed25519Keypair } = window.SuiSDK.Sui;
                 const keypair = Ed25519Keypair.fromSecretKey(privateKey);
@@ -1614,6 +1840,7 @@
         // Proper Sui Wallet Standard Connection using @mysten/wallet-standard
         async function connectWalletStandard() {
             try {
+                await ensureSdkReady();
                 
                 // Wait for extensions to load
                 await waitForWalletExtensions();
@@ -2325,6 +2552,7 @@
             }
 
             try {
+                await ensureSdkReady();
                 logOutput('Initializing roster...');
                 const { Transaction } = window.SuiSDK.Sui;
                 const tx = new Transaction();
@@ -2377,6 +2605,7 @@
         // Find the shared Roster object
         async function findRoster() {
             try {
+                await ensureSdkReady();
                 logOutput('Looking for roster...');
 
                 // 0) Prefer configured canonical ID
@@ -2659,6 +2888,9 @@
                 managementSection.style.display = shouldShow ? 'block' : 'none';
                 managementSection.classList.toggle('visible', Boolean(shouldShow));
             }
+            if (shouldShow) {
+                queueRosterDiscovery();
+            }
         }
 
         function hideSmartWalletOperations() {
@@ -2928,6 +3160,9 @@
                     getWalletBalance();
                 }
             });
+            rosterPrefetchDone = false;
+            rosterLookupPromise = null;
+            queueRosterDiscovery();
         }
 
         function savePackageIdOverride() {
@@ -3056,74 +3291,52 @@
         function initializeApp() {
             const loadingScreen = document.getElementById('loading-screen');
             const mainContent = document.getElementById('main-content');
-            
-            if (loadingScreen) loadingScreen.style.display = 'block';
-            if (mainContent) mainContent.style.display = 'none';
 
             updateWalletConnectionControls(false);
             setSmartWalletManagementVisible(false);
-            
-            waitForSDKs().then(async () => {
-                await initializeSuiClient();
-                // Auto-discover roster on first load
-                try {
-                    await findRoster();
-                } catch (e) { /* non-fatal */ }
-                try {
-                    const pidEl = document.getElementById('packageIdDisplay');
-                    if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
-                    const inp = document.getElementById('packageIdInput');
-                    if (inp) inp.value = getPackageId() || '';
-                } catch (_) {}
+            hideSmartWalletOperations();
 
-                // Try to restore zkLogin session if available
-                try {
-                    await restoreZkLoginFromSession();
-                } catch (e) {
-                    logOutput('Failed to restore zkLogin session: ' + e.message, false);
+            if (mainContent) {
+                mainContent.style.display = 'block';
+            }
+
+            requestAnimationFrame(() => {
+                if (loadingScreen) {
+                    loadingScreen.style.opacity = '0';
+                    setTimeout(() => {
+                        loadingScreen.style.display = 'none';
+                    }, 150);
                 }
 
-                // Wallet detection is now working - no need for automatic debug
-                
-                setTimeout(() => {
-                    if (loadingScreen) {
-                        loadingScreen.style.opacity = '0';
-                        setTimeout(() => {
-                            loadingScreen.style.display = 'none';
-                            if (mainContent) {
-                                mainContent.style.display = 'block';
-                                setTimeout(() => {
-                                    const allSections = document.querySelectorAll('.section');
-                                    const operationsSection = document.getElementById('smartWalletOperations');
-                                    allSections.forEach(section => {
-                                        if (operationsSection && section === operationsSection) {
-                                            return;
-                                        }
-                                        section.style.display = 'block';
-                                        section.classList.add('visible');
-                                    });
-                                    setSmartWalletManagementVisible(false);
-                                    hideSmartWalletOperations();
-                                    mainContent.classList.add('loaded');
-                                }, 300);
-                            }
-                        }, 100);
+                const allSections = document.querySelectorAll('.section');
+                const operationsSection = document.getElementById('smartWalletOperations');
+                allSections.forEach(section => {
+                    if (operationsSection && section === operationsSection) {
+                        return;
                     }
-                }, 200);
-
-                // Modal close handlers
-                try {
-                    const overlay = document.getElementById('walletModal');
-                    if (overlay) {
-                        overlay.addEventListener('click', function(ev){ if (ev.target === overlay) closeWalletModal(); });
-                    }
-                    const closeButton = document.getElementById('walletModalClose');
-                    if (closeButton) {
-                        closeButton.addEventListener('click', () => closeWalletModal());
-                    }
-                    document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') closeWalletModal(); });
-                } catch (e) {}
+                    section.style.display = 'block';
+                    section.classList.add('visible');
+                });
+                setSmartWalletManagementVisible(false);
+                hideSmartWalletOperations();
+                if (mainContent) {
+                    mainContent.classList.add('loaded');
+                }
             });
+
+            try {
+                const overlay = document.getElementById('walletModal');
+                if (overlay) {
+                    overlay.addEventListener('click', function(ev){ if (ev.target === overlay) closeWalletModal(); });
+                }
+                const closeButton = document.getElementById('walletModalClose');
+                if (closeButton) {
+                    closeButton.addEventListener('click', () => closeWalletModal());
+                }
+                document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') closeWalletModal(); });
+            } catch (e) {}
+
+            scheduleBootstrapWork();
         }
 
         // Initialize when ready
