@@ -125,6 +125,14 @@ try {
 
     // For SmartWallet, only load core bundle - extended features on demand only
     if (file.name === 'SmartWallet') {
+      // Read the passkey icon and convert to base64
+      const passkeyIconPath = path.join(__dirname, 'assets', 'passkey-low.png');
+      let passkeyIconBase64 = '';
+      if (fs.existsSync(passkeyIconPath)) {
+        const passkeyIconBuffer = fs.readFileSync(passkeyIconPath);
+        passkeyIconBase64 = passkeyIconBuffer.toString('base64');
+      }
+
       bundleReplacement += `
     <script>
       // SmartWallet performance optimization: Using ${bundleName} bundle
@@ -153,6 +161,7 @@ try {
         });
       };
       window.__SMARTWALLET_ZKLOGIN_BASE64 = '${zkLoginBundleBase64}';
+      window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/png;base64,${passkeyIconBase64}';
     </script>`;
     } else if (hasExtended) {
       // For main vWallet, load extended bundle immediately via loader
