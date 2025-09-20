@@ -106,14 +106,22 @@
   - [ ] Test build process with `npm run build`
   - [ ] Verify bundle injection works correctly for both `vWallet.html` and `src/smartwallet.html`
 
-### 5. Run & Observe - Monitor Execution Outputs
-**Execute and monitor the following commands:**
+### 5. Run & Observe - User Executes Build Commands
+**The user will run these commands to test changes:**
 
-- **Tunnel Mode**: `npm run tunnel-dev` (Cloudflare Tunnel + Vite with HTTPS)
-- **Build Process**: `npm run build` (Creates IIFE bundle)
+- **Development Server**: `npm run dev` or `npm run tunnel-dev` (Cloudflare Tunnel + Vite with HTTPS)
+- **Quick Build**: `npm run mini-build` (Fast build for testing)
+- **Full Build**: `npm run build` (Creates IIFE bundle)
 - **Injection Test**: `npm run inject` (Injects bundle into `vWallet.html` and regenerates `src/smartwallet.html` from `src/smartwallet-dev.html`)
 
-**Monitor for:**
+**IMPORTANT**: Agents should NOT run development servers (`npm run dev`, `npm run tunnel-dev`) or build commands. The user will execute these commands when ready to test.
+
+**Instead, agents should:**
+- Inform the user which command to run for testing
+- Explain what the user should look for when testing
+- Ask the user to report results if needed
+
+**User should monitor for:**
 - Browser console errors in wallet operations
 - Build process completion and bundle size
 - HTML injection success
@@ -155,33 +163,35 @@
 ## Development Workflow Example
 
 ```bash
-# 1. Context Gathering
+# 1. Context Gathering (Agent performs)
 git status
-npm run tunnel-dev
+# Agent reviews files and understands current state
 
-# 2. Plan Creation
-# Review src/index.ts and HTML wallet functions
-# Audit vWallet-dev.html and src/smartwallet-dev.html for impacted markup/scripts
-# Identify required changes and dependencies
+# 2. Plan Creation (Agent performs)
+# Agent reviews src/index.ts and HTML wallet functions
+# Agent audits vWallet-dev.html and src/smartwallet-dev.html for impacted markup/scripts
+# Agent identifies required changes and dependencies
 
-# 3. Test Implementation
-# Create tests in src/wallet.test.ts
-npm test
+# 3. Test Implementation (Agent performs if needed)
+# Agent creates tests in src/wallet.test.ts if applicable
 
-# 4. Code Implementation
-# Make changes to wallet functionality
-# Update SDK exports if needed
-# Apply HTML/template changes only in vWallet-dev.html and src/smartwallet-dev.html
+# 4. Code Implementation (Agent performs)
+# Agent makes changes to wallet functionality
+# Agent updates SDK exports if needed
+# Agent applies HTML/template changes only in vWallet-dev.html and src/smartwallet-dev.html
 
-# 5. Run & Observe
-npm run build
-open vWallet.html
-open src/smartwallet.html
+# 5. User Testing (User performs)
+npm run mini-build  # Quick build for testing
+# OR
+npm run build      # Full build
+# OR
+npm run dev        # Development server
 
-# 6. Detailed Testing
-# Test wallet creation, transaction signing
-# Verify browser console for errors
-# Test in multiple browsers
+# 6. Detailed Testing (User performs)
+# User tests wallet creation, transaction signing
+# User verifies browser console for errors
+# User tests in multiple browsers
+# User reports results to agent if issues found
 ```
 
 ## Commit & Pull Request Guidelines

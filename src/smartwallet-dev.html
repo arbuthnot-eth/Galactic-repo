@@ -265,7 +265,8 @@
         .zklogin-provider:first-child { border-radius: 8px 8px 0 0; }
         .zklogin-provider:last-child { border-radius: 0 0 8px 8px; }
         .zklogin-provider:only-child { border-radius: 8px; }
-        .zklogin-provider-icon { width: 24px; height: 24px; border-radius: 4px; }
+        .zklogin-provider-icon { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+        .zklogin-provider-icon svg { width: 100%; height: 100%; }
         .zklogin-provider-name { font-weight: 500; }
     </style>
     
@@ -410,28 +411,6 @@
         let rosterLookupPromise = null;
         let rosterPrefetchDone = false;
 
-        const walletIconCache = new Map();
-        const WALLET_ICON_PRESETS = {
-            sui: { label: 'S', bg: '#00B8FF' },
-            suiwallet: { label: 'S', bg: '#00B8FF' },
-            suiwalletwindowsui: { label: 'S', bg: '#00B8FF' },
-            mystenwallet: { label: 'S', bg: '#00B8FF' },
-            walletstandard: { label: 'WS', bg: '#5A9BD4' },
-            phantom: { label: 'P', bg: '#6C5CE7' },
-            phantomsui: { label: 'P', bg: '#6C5CE7' },
-            ethos: { label: 'E', bg: '#FF7A59' },
-            ethoswallet: { label: 'E', bg: '#FF7A59' },
-            slush: { label: 'SL', bg: '#8A2BE2' },
-            martian: { label: 'M', bg: '#FF4C29' },
-            martianwallet: { label: 'M', bg: '#FF4C29' },
-            suiet: { label: 'SI', bg: '#0AB68B' },
-            surf: { label: 'SU', bg: '#1ABC9C' },
-            glass: { label: 'GL', bg: '#00A896' },
-            bitkeep: { label: 'BK', bg: '#F39C12' },
-            okx: { label: 'OK', bg: '#111111', fg: '#FFFFFF' },
-            okxwallet: { label: 'OK', bg: '#111111', fg: '#FFFFFF' }
-        };
-        const WALLET_ICON_PALETTE = ['#2d4a66', '#8e44ad', '#16a085', '#e67e22', '#c0392b', '#5a9bd4', '#e74c3c', '#1abc9c', '#9b59b6'];
 
         const ZKLOGIN_CONFIG = {
             GOOGLE_CLIENT_ID: '373405271144-kevesn5h18jt8grqh5cel7jcsu9si73t.apps.googleusercontent.com',
@@ -464,14 +443,6 @@
             return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         }
 
-        function hashString(str) {
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-                hash = ((hash << 5) - hash) + str.charCodeAt(i);
-                hash |= 0;
-            }
-            return hash;
-        }
 
         function makeWalletIcon(label, bg, fg = '#ffffff') {
             const text = (label || 'W').toString().trim().slice(0, 2).toUpperCase() || 'W';
@@ -863,17 +834,17 @@
         const ZKLOGIN_PROVIDERS = {
             google: {
                 name: 'Google',
-                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIyLjU2IDEyLjI1YzAtLjc4LS4wNy0xLjUzLS4yLTIuMjVIMTJ2NC4yNmg1LjkyYy0uMjYgMS4zNy0xLjA0IDIuNTMtMi4yMSAzLjMxdjIuNzdoMy41N2MyLjA4LTEuOTIgMy4yOC00Ljc0IDMuMjgtOC4wOXoiIGZpbGw9IiM0Mjg1RjQiLz4KPHBhdGggZD0iTTEyIDIzYzIuOTcgMCA1LjQ2LS45OCA3LjI4LTIuNjZsLTMuNTctMi43N2MtLjk4LjY2LTIuMjMgMS4wNi0zLjcxIDEuMDYtMi44NiAwLTUuMjktMS45My02LjE2LTQuNTNIMi4xOHYyLjg0QzMuOTkgMjAuNTMgNy43IDIzIDEyIDIzeiIgZmlsbD0iIzM0QTg1MyIvPgo8cGF0aCBkPSJNNS44NCAxNC4wOWMtLjIyLS42Ni0uMzUtMS4zNi0uMzUtMi4wOXMuMTMtMS40My4zNS0yLjA5VjcuMDdIMi4xOEM3LjQgOS4yIDEgMTAuNiAxIDEyUzEuNCAxNC44IDIuMTggMTYuOTNsLTEuMTYtMi44NFYxNC4wOXoiIGZpbGw9IiNGQkJDMDQiLz4KPHBhdGggZD0iTTEyIDQuNzVjMS42MSAwIDMuMDYuNTUgNC4yMiAxLjY0bDMuMTUtMy4xNUMxNy40NSAxLjA5IDE0Ljk3IDAgMTIgMCA3LjcgMCAzLjk5IDIuNDcgMi4xOCA3LjA3bDMuNjYgMi44NGMuODctMi42IDMuMy00LjUzIDYuMTYtNC41M3oiIGZpbGw9IiNFQTQzMzUiLz4KPC9zdmc+',
+                icon: '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.85 10.85 0 001 12c0 1.61.39 3.14 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC04"/><path d="M12 4.75c1.61 0 3.06.55 4.22 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>',
                 clientId: 'GOOGLE_CLIENT_ID'
             },
             facebook: {
                 name: 'Meta',
-                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTI0IDEyQzI0IDUuMzczIDE4LjYyNyAwIDEyIDAgUzAgNS4zNzMgMCAxMmMwIDUuOTkgNC4zODggMTAuOTU0IDEwLjEyNSAxMS45MjdWMTUuNDY5SDcuMDc4VjEyaDMuMDQ3VjkuMzU2YzAtMy4wMDcgMS43OTItNC42NjkgNC41MzMtNC42NjkgMS4zMTIgMCAyLjY4Ni4yMzQgMi42ODYuMjM0djIuOTUzSDE2LjgzYy0xLjQ5MSAwLTEuOTU1LjkyNS0xLjk1NSAxLjg3NVYxMmgyLjU5M2wtLjEyNSAzLjQ2OUgxNS45MzdWMjMuOTI3QzIwLjYxMiAyMi45NTQgMjQuNTQgMTcuOTkgMjQgMTJaIiBmaWxsPSIjMTg3N0YyIi8+Cjwvc3ZnPg==',
+                icon: '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.927v-8.437H7.078v-3.49h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.49h-2.796v8.437C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/></svg>',
                 clientId: 'FACEBOOK_CLIENT_ID'
             },
             apple: {
                 name: 'Apple',
-                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE3LjA1IDIwLjI4Yy0uOTguOTMtMi4wNSAxLjU1LTMuMjEgMS44Ni0xLjE2LjMxLTIuMzQuMzEtMy41LjAxLTEuMTYtLjMxLTIuMjMtLjkzLTMuMjEtMS44Ni0xLjk0LTEuODItMy4xNy00LjM5LTMuNjktNy4zcy4xNy01Ljk4IDEuNzItOC41OGMuNzctMS4zIDEuODctMi4zNyAzLjE3LTMuMTFDOS42OC44OTMgMTEuMzQuNDk3IDEzIC40OTdjMS42NiAwIDMuMzIuMzk2IDQuOTUgMS4xNzNjMS4zLjc0IDIuNCAxLjgxIDMuMTcgMy4xMSAxLjU1IDIuNiAyLjI0IDUuNjggMS43MiA4LjU4cy0xLjc1IDUuNDgtMy42OSA3LjNabS0zLjEyLTE2LjI3Yy0uNzYtLjA3LTEuNTMuMDMtMi4yNC4yOC0uNzEuMjUtMS4zNy42NC0xLjkxIDEuMTJhOS4zMyA5LjMzIDAgMDAtMS4zMyAyLjQzIDUuMDYgNS4wNiAwIDAwLS4yIDIuODljLjI2IDEgLjggMS44OCAxLjU2IDIuNTEtLjI2LS4wNy0uNTMtLjEyLS44MS0uMTMtLjU5LS4wMS0xLjE3LjA5LTEuNzEuMzJzLTEuMDQuNTktMS40NCAxLjAzYy0uNC40NC0uNzMuOTUtLjk2IDEuNWEyLjE5IDIuMTkgMCAwMC0uMDQgMS42NmMuMTIuNTQuMzUgMS4wNS42NyAxLjQ5LjMyLjQ0LjcxLjgxIDEuMTYgMS4wOS45LjU2IDEuOTYuODUgMy4wNS44NS4yMiAwIC40NC0uMDEuNjYtLjA0YTMuODcgMy44NyAwIDAwMS43Ni0uNjNjLjUzLS4zOCAxLjAxLS44NSAxLjQzLTEuMzlhNS4xIDUuMSAwIDAwMS0yLjAzYy4yLS44Mi4yNS0xLjY4LjEzLTIuNTJhMy44NCAzLjg0IDAgMDAtLjU5LTEuNzhjLS4yOS0uNTQtLjY5LTEtMS4xNy0xLjM2YTQuMjEgNC4yMSAwIDAwLTEuNzItLjY5Yy0uNjItLjE0LTEuMjUtLjE0LTEuODctLjAxWm0yLjk4LTMuMTVjLjI2LS45LjU5LTEuODYgMi4yMy0xLjg2IDEuNjMgMCAxLjcuOTYgMS40NiAxLjg2QTE5LjczIDE5LjczIDAgMDExNi45MS44NVoiIGZpbGw9IiNmZmZmZmYiLz4KPC9zdmc+',
+                icon: '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" fill="#ffffff"/></svg>',
                 clientId: 'APPLE_CLIENT_ID'
             }
         };
@@ -1238,35 +1209,9 @@
                 const urlIcon = iconCandidates.find(src => typeof src === 'string');
                 if (urlIcon) return urlIcon;
 
-                const candidates = [];
-                if (entry && entry.name) candidates.push(entry.name);
-                if (wallet && wallet.name) candidates.push(wallet.name);
-                if (wallet && wallet.id) candidates.push(wallet.id);
-                if (entry && entry.type) candidates.push(entry.type);
-
-                for (const raw of candidates) {
-                    const key = normalizeWalletKey(raw);
-                    if (!key) continue;
-                    if (walletIconCache.has(key)) return walletIconCache.get(key);
-                    const preset = WALLET_ICON_PRESETS[key];
-                    if (preset) {
-                        const icon = makeWalletIcon(preset.label, preset.bg, preset.fg || '#ffffff');
-                        walletIconCache.set(key, icon);
-                        return icon;
-                    }
-                }
-
-                const fallbackSource = candidates.find(Boolean) || 'Wallet';
-                const fallbackKey = normalizeWalletKey(fallbackSource) || 'wallet';
-                if (walletIconCache.has(fallbackKey)) return walletIconCache.get(fallbackKey);
-                const label = fallbackSource.trim().split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'W';
-                const paletteIndex = Math.abs(hashString(fallbackKey)) % WALLET_ICON_PALETTE.length;
-                const color = WALLET_ICON_PALETTE[paletteIndex];
-                const icon = makeWalletIcon(label, color);
-                walletIconCache.set(fallbackKey, icon);
-                return icon;
+                return null;
             } catch (_) {
-                return makeWalletIcon('W', '#2d4a66');
+                return null;
             }
         }
 
@@ -2174,15 +2119,15 @@
                                 '  </button>\n' +
                                 '  <div class="zklogin-dropdown" id="zkloginDropdown' + i + '">\n' +
                                 '    <button type="button" class="zklogin-provider" onclick="connectZkLoginProvider(\'google\')">\n' +
-                                '      <img src="' + escapeHtml(createZkLoginProviderIcon('google')) + '" alt="Google" class="zklogin-provider-icon" loading="lazy">\n' +
+                                '      <div class="zklogin-provider-icon">' + ZKLOGIN_PROVIDERS.google.icon + '</div>\n' +
                                 '      <span class="zklogin-provider-name">Google</span>\n' +
                                 '    </button>\n' +
                                 '    <button type="button" class="zklogin-provider" onclick="connectZkLoginProvider(\'facebook\')">\n' +
-                                '      <img src="' + escapeHtml(createZkLoginProviderIcon('facebook')) + '" alt="Meta" class="zklogin-provider-icon" loading="lazy">\n' +
+                                '      <div class="zklogin-provider-icon">' + ZKLOGIN_PROVIDERS.facebook.icon + '</div>\n' +
                                 '      <span class="zklogin-provider-name">Meta</span>\n' +
                                 '    </button>\n' +
                                 '    <button type="button" class="zklogin-provider" onclick="connectZkLoginProvider(\'apple\')">\n' +
-                                '      <img src="' + escapeHtml(createZkLoginProviderIcon('apple')) + '" alt="Apple" class="zklogin-provider-icon" loading="lazy">\n' +
+                                '      <div class="zklogin-provider-icon">' + ZKLOGIN_PROVIDERS.apple.icon + '</div>\n' +
                                 '      <span class="zklogin-provider-name">Apple</span>\n' +
                                 '    </button>\n' +
                                 '  </div>\n' +
