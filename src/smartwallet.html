@@ -710,7 +710,8 @@
         async function handleZkLoginConnect() {
             try {
                 logOutput('🔐 Starting zkLogin (Google)...');
-                await waitForSDKs();
+                // Use ensureSdkReady which is more efficient
+                await ensureSdkReady();
                 if (!suiClient) {
                     await initializeSuiClient();
                 }
@@ -1227,23 +1228,47 @@
             }
         }
 
+        // Optimized SDK loading - check synchronously first, then wait only if needed
+        // PERFORMANCE: This prevents blocking the UI thread during SDK initialization
+        // - Fast path: Immediate return if SDK already loaded (production builds)
+        // - Timeout: Prevents infinite waiting if SDK fails to load
+        // - Caching: Reuses existing promise if already waiting
         function waitForSDKs() {
+            // Fast path: SDK already available (production build)
             if (window.SuiSDK) {
                 return Promise.resolve();
             }
+
+            // Check if we're already waiting
             if (sdkReadyPromise) {
                 return sdkReadyPromise;
             }
-            sdkReadyPromise = new Promise((resolve) => {
+
+            // Create promise with timeout to avoid infinite waiting
+            sdkReadyPromise = new Promise((resolve, reject) => {
+                let attempts = 0;
+                const maxAttempts = 50; // Max 4 seconds (50 * 80ms)
+
                 const poll = () => {
+                    attempts++;
+
                     if (window.SuiSDK) {
                         resolve();
-                    } else {
-                        setTimeout(poll, 80);
+                        return;
                     }
+
+                    if (attempts >= maxAttempts) {
+                        reject(new Error('SDK failed to load within timeout'));
+                        return;
+                    }
+
+                    setTimeout(poll, 80);
                 };
+
+                // Start polling
                 poll();
             });
+
             return sdkReadyPromise;
         }
 
@@ -1407,12 +1432,15 @@
             return null;
         }
 
-        // Initialize Sui client
+        // Initialize Sui client - optimized for performance
         async function initializeSuiClient() {
             if (suiClient) return suiClient;
+
+            // Fast path: check if SDK is immediately available
             if (!window.SuiSDK) {
                 await waitForSDKs();
             }
+
             if (!window.SuiSDK) throw new Error('SDK not loaded');
             const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
             suiClient = new SuiClient({ url: getFullnodeUrl(currentNetwork) });
@@ -1438,12 +1466,6 @@
                     return;
                 }
 
-                try {
-                    const pidEl = document.getElementById('packageIdDisplay');
-                    if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
-                    const pidInput = document.getElementById('packageIdInput');
-                    if (pidInput) pidInput.value = getPackageId() || '';
-                } catch (_) {}
 
                 try {
                     await restoreZkLoginFromSession();
@@ -1469,48 +1491,6 @@
             return bootstrapPromise;
         }
 
-        function queueRosterDiscovery() {
-            if (rosterPrefetchDone) {
-                return Promise.resolve();
-            }
-            if (rosterLookupPromise) {
-                return rosterLookupPromise;
-            }
-
-            const execute = async () => {
-                try {
-                    await findRoster();
-                } catch (error) {
-                    logOutput('Roster lookup failed: ' + error.message, false);
-                }
-            };
-
-            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-                rosterLookupPromise = new Promise((resolve) => {
-                    const finalize = () => {
-                        rosterPrefetchDone = true;
-                        rosterLookupPromise = null;
-                        resolve();
-                    };
-                    window.requestIdleCallback(() => {
-                        execute().finally(finalize);
-                    }, { timeout: 2000 });
-                });
-            } else {
-                rosterLookupPromise = new Promise((resolve) => {
-                    const finalize = () => {
-                        rosterPrefetchDone = true;
-                        rosterLookupPromise = null;
-                        resolve();
-                    };
-                    setTimeout(() => {
-                        execute().finally(finalize);
-                    }, 200);
-                });
-            }
-
-            return rosterLookupPromise;
-        }
 
         // Wallet Management Functions
         async function createNewWallet() {
@@ -1913,6 +1893,50 @@
             logOutput('🧪 Passkey flow coming soon. This option will use Mysten passkey helpers in the inline Sui SDK.');
         }
 
+        // Network sync utilities
+        function getWalletNetwork(wallet) {
+            if (!wallet || !wallet.chains) return null;
+
+            // Debug: Show what chains the wallet supports
+            logOutput(`🔍 Wallet chains: ${JSON.stringify(wallet.chains)}`);
+
+            // Check for Sui networks - prioritize TESTNET first since user expects testnet
+            const suiNetworks = ['sui:testnet', 'sui:mainnet', 'sui:devnet'];
+            for (const network of suiNetworks) {
+                if (wallet.chains.includes(network)) {
+                    logOutput(`🎯 Detected network: ${network} (prioritizing testnet)`);
+                    return network.replace('sui:', '');
+                }
+            }
+
+            // Fallback: check for generic 'sui' chain
+            if (wallet.chains.includes('sui')) {
+                logOutput(`⚠️ Generic 'sui' chain detected, assuming testnet`);
+                return 'testnet'; // Assume testnet if generic sui chain
+            }
+
+            logOutput(`❌ No Sui network detected in wallet chains`);
+            return null;
+        }
+
+        function checkWalletNetworkMismatch(wallet) {
+            const walletNetwork = getWalletNetwork(wallet);
+            if (!walletNetwork) {
+                logOutput(`⚠️ Could not detect wallet network from chains: ${JSON.stringify(wallet.chains)}`);
+                return false;
+            }
+
+            if (walletNetwork !== currentNetwork) {
+                logOutput(`⚠️ Network mismatch detected!`);
+                logOutput(`💡 App is on ${currentNetwork}, but wallet ${wallet.name || 'Unknown'} supports ${walletNetwork}`);
+                logOutput(`📝 You can manually change networks using the dropdown above if needed`);
+                return true; // There's a mismatch
+            } else {
+                logOutput(`✅ Networks match: Both app and wallet on ${walletNetwork}`);
+                return false; // No mismatch
+            }
+        }
+
         async function connectToWallet(wallet) {
             try {
                 logOutput(`Connecting to ${wallet.name || 'wallet'}...`);
@@ -1960,6 +1984,10 @@
                 
                 if (accounts && accounts.length > 0) {
                     const account = accounts[0];
+
+                    // Check for network mismatch (no auto-switching)
+                    const hasMismatch = checkWalletNetworkMismatch(wallet);
+
                     currentWallet = {
                         address: account.address,
                         type: 'wallet_standard',
@@ -1971,7 +1999,7 @@
                     showCurrentWalletAddress(account.address);
                     document.getElementById('walletInfo').style.display = 'block';
                     updateWalletConnectionControls(true);
-                    document.getElementById('walletType').textContent = `${wallet.name || 'Wallet Standard'}`;
+                    document.getElementById('walletType').textContent = `${wallet.name || 'Wallet Standard'}${hasMismatch ? ' (network mismatch!)' : ''}`;
 
                     logOutput(`Connected to ${wallet.name || 'wallet'}!`);
                     logOutput(`Address: ${account.address}`);
@@ -2013,12 +2041,16 @@
                 }
                 if (!accounts || !accounts.length) throw new Error('No accounts found in window.sui');
                 const account = accounts[0];
+
+                // Check for network mismatch (no auto-switching)
+                const hasMismatch = checkWalletNetworkMismatch(window.sui);
+
                 currentWallet = { address: account.address, type: 'wallet_standard', wallet: window.sui };
                 connectedWalletStandard = window.sui;
                 showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
-                document.getElementById('walletType').textContent = 'Sui Wallet (window.sui)';
+                document.getElementById('walletType').textContent = `Sui Wallet (window.sui)${hasMismatch ? ' (network mismatch!)' : ''}`;
                 logOutput('✅ Connected via window.sui');
                 await getWalletBalance();
 
@@ -2086,6 +2118,9 @@
                 
                 const account = accounts[0];
                 logOutput(`Using account: ${account.address}`);
+
+                // Check for network mismatch (no auto-switching)
+                const hasMismatch = checkWalletNetworkMismatch(phantomSui);
                 
                 currentWallet = { address: account.address, type: 'wallet_standard', wallet: phantomSui };
                 connectedWalletStandard = phantomSui;
@@ -2093,7 +2128,7 @@
                 showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
-                document.getElementById('walletType').textContent = 'Phantom (Sui)';
+                document.getElementById('walletType').textContent = `Phantom (Sui)${hasMismatch ? ' (network mismatch!)' : ''}`;
                 
                 logOutput('✅ Connected via Phantom (Sui)');
                 logOutput(`Address: ${account.address}`);
@@ -2284,138 +2319,6 @@
             }
         }
 
-        // Smart Contract Functions
-
-        // Initialize Roster (call once after deployment)
-        async function initRoster() {
-            if (!currentWallet) {
-                logOutput('No wallet connected', true);
-                return;
-            }
-
-            try {
-                await ensureSdkReady();
-                logOutput('Initializing roster...');
-                const { Transaction } = window.SuiSDK.Sui;
-                const tx = new Transaction();
-
-                tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::init_roster`,
-                    arguments: []
-                });
-
-                const result = await signAndExecuteTransaction(tx);
-
-                logOutput(`Roster initialized! Transaction: ${result.digest}`);
-
-                // Persist digest for fallback discovery
-                try { localStorage.setItem('lastRosterInitDigest', result.digest); } catch (_) {}
-
-                // Try to extract the created shared Roster object ID directly from the response
-                const ROSTER_TYPE = `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::Roster`;
-                let createdId = null;
-
-                try {
-                    const oc = result && result.objectChanges ? result.objectChanges : [];
-                    if (Array.isArray(oc) && oc.length) {
-                        const created = oc.find(c => c.type === 'created' && c.objectType === ROSTER_TYPE);
-                        if (created && created.objectId) createdId = created.objectId;
-                    }
-                } catch (_) {}
-
-                // If not present, wait for tx to finalize then fetch full details
-                if (!createdId) {
-                    const fetched = await extractCreatedObjectIdFromDigest(result.digest, ROSTER_TYPE);
-                    if (fetched) createdId = fetched;
-                    else logOutput('Note: could not fetch created Roster ID from digest yet', true);
-                }
-
-                if (createdId) {
-                    rosterId = createdId;
-                    try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
-                    document.getElementById('rosterId').textContent = rosterId;
-                    logOutput(`Found roster: ${rosterId}`);
-                } else {
-                    // Fallback: search via indexer for any Roster objects (shared, global)
-                    await findRoster();
-                }
-            } catch (error) {
-                logOutput('Error initializing roster: ' + error.message, true);
-            }
-        }
-
-        // Find the shared Roster object
-        async function findRoster() {
-            try {
-                await ensureSdkReady();
-                logOutput('Looking for roster...');
-
-                // 0) Prefer configured canonical ID
-                try {
-                    const configured = (DISCOVERY_CONFIG && DISCOVERY_CONFIG.rosterIds && DISCOVERY_CONFIG.rosterIds[currentNetwork]) || '';
-                    if (configured && /^0x[0-9a-fA-F]{40,}$/.test(configured)) {
-                        rosterId = configured;
-                        try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
-                        document.getElementById('rosterId').textContent = rosterId;
-                        logOutput(`Found roster (configured): ${rosterId}`);
-                        return;
-                    }
-                } catch (_) {}
-
-                // 1) Try SuiNS if available and a name is configured (skip on devnet)
-                try {
-                    const name = DISCOVERY_CONFIG?.suinsName || '';
-                    if (name && currentNetwork !== 'devnet' && window.SuiSDK?.SuiNS?.SuinsClient) {
-                        const suinsNetwork = currentNetwork === 'mainnet' ? 'mainnet' : 'testnet';
-                        const { SuinsClient } = window.SuiSDK.SuiNS;
-                        const suins = new SuinsClient({ client: suiClient, network: suinsNetwork });
-                        const rec = await suins.getNameRecord(name);
-                        const rid = (rec && rec.data && rec.data.roster_id) || null;
-                        if (rid && /^0x[0-9a-fA-F]{40,}$/.test(rid)) {
-                            rosterId = rid;
-                            try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
-                            document.getElementById('rosterId').textContent = rosterId;
-                            logOutput(`Found roster (SuiNS: ${name}): ${rosterId}`);
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    // Non-fatal; continue with other discovery paths
-                }
-
-                // 2) Check local storage cache
-                try {
-                    const cached = localStorage.getItem('rosterId');
-                    if (cached) {
-                        rosterId = cached;
-                        document.getElementById('rosterId').textContent = rosterId;
-                        logOutput(`Found roster (cached): ${rosterId}`);
-                        return;
-                    }
-                } catch (_) {}
-
-                // 3) Fallback: if we have last init digest, try to fetch the created object id
-                try {
-                    const lastDigest = localStorage.getItem('lastRosterInitDigest');
-                    if (lastDigest) {
-                        const ROSTER_TYPE = `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::Roster`;
-                        const createdId = await extractCreatedObjectIdFromDigest(lastDigest, ROSTER_TYPE);
-                        if (createdId) {
-                            rosterId = createdId;
-                            try { localStorage.setItem('rosterId', rosterId); } catch (_) {}
-                            document.getElementById('rosterId').textContent = rosterId;
-                            logOutput(`Found roster: ${rosterId}`);
-                            return;
-                        }
-                    }
-                } catch (_) {}
-
-                // As a final fallback, inform user
-                logOutput('No roster found - you may need to initialize one first', true);
-            } catch (error) {
-                logOutput('Error finding roster: ' + error.message, true);
-            }
-        }
 
 
 
@@ -2429,12 +2332,6 @@
             const networkSelect = document.getElementById('networkSelect');
             currentNetwork = networkSelect.value;
             logOutput(`Network changed to: ${currentNetwork}`);
-            try {
-                const pidEl = document.getElementById('packageIdDisplay');
-                if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
-                const inp = document.getElementById('packageIdInput');
-                if (inp) inp.value = getPackageId() || '';
-            } catch (_) {}
             
             // Reinitialize client
             initializeSuiClient().then(() => {
@@ -2442,42 +2339,8 @@
                     getWalletBalance();
                 }
             });
-            rosterPrefetchDone = false;
-            rosterLookupPromise = null;
-            queueRosterDiscovery();
         }
 
-        function savePackageIdOverride() {
-            try {
-                const inp = document.getElementById('packageIdInput');
-                const val = (inp && inp.value || '').trim();
-                if (!/^0x[0-9a-fA-F]{40,}$/.test(val)) {
-                    logOutput('Invalid package ID format. Expect 0x-prefixed hex.', true);
-                    return;
-                }
-                const key = `galactic:packageId:${currentNetwork}`;
-                localStorage.setItem(key, val);
-                const pidEl = document.getElementById('packageIdDisplay');
-                if (pidEl) pidEl.textContent = val;
-                logOutput(`Saved package ID override for ${currentNetwork}.`);
-            } catch (e) {
-                logOutput('Failed to save package ID: ' + e.message, true);
-            }
-        }
-
-        function clearPackageIdOverride() {
-            try {
-                const key = `galactic:packageId:${currentNetwork}`;
-                localStorage.removeItem(key);
-                const pidEl = document.getElementById('packageIdDisplay');
-                if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
-                const inp = document.getElementById('packageIdInput');
-                if (inp) inp.value = getPackageId() || '';
-                logOutput(`Cleared package ID override for ${currentNetwork}.`);
-            } catch (e) {
-                logOutput('Failed to clear package ID: ' + e.message, true);
-            }
-        }
 
         function clearOutput() {
             document.getElementById('output').textContent = '';
@@ -2617,7 +2480,7 @@
     <div class="container" id="loading-screen">
         <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
         <div class="app-loading">
-            <p>Loading smart contract interface...</p>
+            <p>Loading wallet interface...</p>
             <div class="loading-spinner"></div>
         </div>
     </div>
