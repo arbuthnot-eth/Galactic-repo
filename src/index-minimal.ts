@@ -1,22 +1,23 @@
-// src/index-minimal.ts - Ultra-minimal bundle with only used functions
-// Based on actual SmartWallet usage analysis
+// src/index-minimal.ts - Ultra-minimal bundle with ONLY functions actually used
+// Analysis: Only these specific functions are called in smartwallet-dev.html
 
-// Core Sui imports - only what's actually used
+// Sui - import only the specific functions we actually use
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { getFullnodeUrl } from '@mysten/sui/client';
+import { SuiClient } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
 
-// ZkLogin - minimal imports (load heavier helpers on demand)
+// ZkLogin - only the 2 functions actually used
 import { getExtendedEphemeralPublicKey, getZkLoginSignature } from '@mysten/sui/zklogin';
 
-// BCS - minimal imports
-import { fromBase64, bcs } from '@mysten/bcs';
+// BCS - only fromBase64 (bcs object not used directly)
+import { fromBase64 } from '@mysten/bcs';
 
 // Enoki - only EnokiClient
 import { EnokiClient } from '@mysten/enoki';
 
-// SuiNS - only SuinsClient
+// SuiNS - required for core functionality
 import { SuinsClient } from '@mysten/suins';
 
 // WalletStandard - only getWallets
@@ -31,12 +32,13 @@ const Sui = {
   normalizeSuiAddress,
   // For backward compatibility
   TransactionBlock: Transaction,
+  // Include SuinsClient for core functionality
+  SuinsClient,
 };
 
-// Minimal BCS object
+// Minimal BCS object - only fromBase64 is used
 const BCS = {
   fromBase64,
-  bcs,
 };
 
 // Minimal ZkLogin object
@@ -96,21 +98,14 @@ try {
   (window as any).EnokiSDK = { EnokiClient };
 } catch (_) {}
 
-// Environment variables
+// Environment variables - simplified for minimal bundle
 try {
-  const defaultEnokiKey = (import.meta as any)?.env?.VITE_ENOKI_PUBLIC_API_KEY ?? '';
-  if (defaultEnokiKey) {
-    (window as any).ENOKI_API_KEY = defaultEnokiKey;
+  if (typeof (import.meta as any)?.env?.VITE_ENOKI_PUBLIC_API_KEY === 'string') {
+    (window as any).ENOKI_API_KEY = (import.meta as any).env.VITE_ENOKI_PUBLIC_API_KEY;
+  }
+  if (typeof (import.meta as any)?.env?.VITE_ENOKI_API_URL === 'string') {
+    (window as any).ENOKI_API_URL = (import.meta as any).env.VITE_ENOKI_API_URL;
   }
 } catch (_) {}
 
-try {
-  const defaultEnokiUrl = (import.meta as any)?.env?.VITE_ENOKI_API_URL ?? '';
-  if (defaultEnokiUrl) {
-    (window as any).ENOKI_API_URL = defaultEnokiUrl;
-  }
-} catch (_) {}
-
-console.log('Minimal Sui SDK Bundle loaded successfully');
-console.log('Available SDKs:', Object.keys(window.SuiSDK));
-console.log('Bundle size optimized for SmartWallet usage');
+// Bundle loaded successfully

@@ -1,26 +1,22 @@
-# vWallet Coding Agent Instructions
+# Galactic Coding Agent Instructions
 
 ## Agent Processing Flow
 
 ### 1. Context - Gather All Relevant Information First
-**Before any coding changes, thoroughly understand the vWallet project context:**
+**Before any coding changes, thoroughly understand the Galactic project context:**
 
 - **Project Structure & Module Organization**
   - `src/`: TypeScript sources. `index.ts` bundles Mysten SDKs to `window.SuiSDK`.
-  - `src/smartwallet-dev.html`: SmartWallet development HTML template served by the dev server. Mirrors the structure of `vWallet-dev.html`, exposing SmartWallet-specific UI and roster tooling while remaining the only editable SmartWallet HTML surface. Uses a shared Roster object for membership indexing; UI variables and docs consistently use `roster` naming (e.g., `rosterId`).
+  - `src/smartwallet-dev.html`: SmartWallet development HTML template served by the dev server. This is the primary editable HTML surface for SmartWallet functionality. Uses a shared Roster object for membership indexing; UI variables and docs consistently use `roster` naming (e.g., `rosterId`).
   - `src/smartwallet.html`: SmartWallet single-file build output (auto-generated from `src/smartwallet-dev.html` during injection/build; never edit directly).
   - `dist/`: Build output (`sui-sdk-bundle.iife.js`).
   - `scripts/`: Dev utilities (`tunnel-dev.sh`).
-  - Root HTML: `vWallet-dev.html` (dev), `vWallet.html` (built single-file output).
   - Config: `vite.config.ts`, `tsconfig.json`. Auth callback assets under `auth/`.
 
 - **CRITICAL Build Workflow**:
-  - **ONLY EDIT `vWallet-dev.html`** - This is the development template for the main wallet shell.
-  - **NEVER EDIT `vWallet.html`** - This is auto-generated during build.
-  - **ONLY EDIT `src/smartwallet-dev.html`** - This is the SmartWallet development template loaded in dev, staging, and tunnel flows. It must stay in sync with the roster-driven UX and is the source of truth for SmartWallet markup and scripting.
+  - **ONLY EDIT `src/smartwallet-dev.html`** - This is the primary development template for SmartWallet functionality. It must stay in sync with the roster-driven UX and is the source of truth for SmartWallet markup and scripting.
   - **NEVER EDIT `src/smartwallet.html`** - This file is auto-generated from `src/smartwallet-dev.html` by the HTML injector during `npm run inject` and `npm run build`.
-  - Build process: `npm run build` compiles TypeScript and injects the `dist/sui-sdk-bundle.iife.js` bundle into both `vWallet.html` and `src/smartwallet.html` (via the injector pipeline).
-  - Changes to `vWallet-dev.html` and `src/smartwallet-dev.html` are automatically applied to their respective single-file outputs during build/inject steps.
+  - Build process: `npm run build` compiles TypeScript and injects the `dist/sui-sdk-bundle.iife.js` bundle into `src/smartwallet.html` (via the injector pipeline).
 
 - **Technology Stack**
   - TypeScript, ESNext with 2-space indentation, semicolons, and single quotes
@@ -53,8 +49,6 @@
 
 - **Critical Files to Review**
   - `src/index.ts`: Main SDK bundling and browser API exposure
-  - `vWallet-dev.html`: Development HTML template (**ONLY FILE TO EDIT**)
-  - `vWallet.html`: Production single-file output (**AUTO-GENERATED - DO NOT EDIT**)
   - `src/smartwallet-dev.html`: SmartWallet development template (**ONLY FILE TO EDIT**)
   - `src/smartwallet.html`: SmartWallet single-file output (**AUTO-GENERATED - DO NOT EDIT**)
   - `vite.config.ts`: Build configuration
@@ -71,7 +65,7 @@
 - **Environment Considerations**: Development vs production build differences
 
 ### 3. Add Tests for Changes - Create Verification Tests
-**Implement testing strategy for vWallet project:**
+**Implement testing strategy for Galactic project:**
 
 - **Test Framework**: Prefer Vitest for browser-compatible testing
 - **Test Location**: Place tests as `src/*.test.ts` alongside source files
@@ -102,9 +96,9 @@
 
 - **Implementation Checklist**:
   - [ ] Update `src/index.ts` for new SDK exports
-  - [ ] Update HTML templates if needed (`vWallet-dev.html` and/or `src/smartwallet-dev.html`; never touch generated outputs)
+  - [ ] Update HTML templates if needed (`src/smartwallet-dev.html`; never touch generated outputs)
   - [ ] Test build process with `npm run build`
-  - [ ] Verify bundle injection works correctly for both `vWallet.html` and `src/smartwallet.html`
+  - [ ] Verify bundle injection works correctly for `src/smartwallet.html`
 
 ### 5. Run & Observe - User Executes Build Commands
 **The user will run these commands to test changes:**
@@ -112,7 +106,7 @@
 - **Development Server**: `npm run dev` or `npm run tunnel-dev` (Cloudflare Tunnel + Vite with HTTPS)
 - **Quick Build**: `npm run mini-build` (Fast build for testing)
 - **Full Build**: `npm run build` (Creates IIFE bundle)
-- **Injection Test**: `npm run inject` (Injects bundle into `vWallet.html` and regenerates `src/smartwallet.html` from `src/smartwallet-dev.html`)
+- **Injection Test**: `npm run inject` (Injects bundle into `src/smartwallet.html` from `src/smartwallet-dev.html`)
 
 **IMPORTANT**: Agents should NOT run development servers (`npm run dev`, `npm run tunnel-dev`) or build commands. The user will execute these commands when ready to test.
 
@@ -122,7 +116,7 @@
 - Ask the user to report results if needed
 
 ### 6. Test Details - Specify Exactly How to Test
-**Detailed testing procedures for vWallet:**
+**Detailed testing procedures for Galactic:**
 
 #### Wallet Functionality Tests
 1. **Key Generation**: Create new wallet and verify key pairs
@@ -132,7 +126,7 @@
 
 #### Build System Tests
 1. **Bundle Creation**: Verify `dist/sui-sdk-bundle.iife.js` is created
-2. **HTML Injection**: Confirm bundle is properly injected into `vWallet.html` and `src/smartwallet.html`
+2. **HTML Injection**: Confirm bundle is properly injected into `src/smartwallet.html`
 3. **SmartWallet Output**: Diff `src/smartwallet-dev.html` vs generated `src/smartwallet.html` to ensure expected sections are injected and no manual edits were lost
 4. **Browser Loading**: Test that `window.SuiSDK` is available globally
 5. **SDK Methods**: Verify all expected methods are accessible
@@ -141,17 +135,17 @@
 1. **Development Server**: Test HMR functionality with `npm run dev`
 2. **Tunnel Access**: Verify public URL access with `npm run tunnel-dev`
 3. **SmartWallet Preview**: Load `src/smartwallet-dev.html` via the dev server to validate roster interactions, modal flows, and SmartWallet-specific scripts before injection.
-4. **Production Build**: Test final `vWallet.html` and generated `src/smartwallet.html` in multiple browsers
+4. **Production Build**: Test final generated `src/smartwallet.html` in multiple browsers
 
 ### 7. Environment Details - Development Setup
-**Required environment for vWallet development:**
+**Required environment for Galactic development:**
 
 - **Node.js**: Version compatible with Vite and Mysten SDKs
 - **Browser**: Modern browser with ESNext support
 - **Cloudflare Tunnel**: `CLOUDFLARE_TUNNEL_TOKEN` in `.env`
 - **HTTPS**: Provided by Cloudflare Tunnel (no local certificates needed)
 - **Sui Network**: Access to Sui Devnet/Testnet for testing
- - **VWALLET_OPEN_SMARTWALLET**: Set to `false` to prevent auto-opening the SmartWallet dev URL in `npm run tunnel-dev` (default: `true`).
+ - **GALACTIC_OPEN_SMARTWALLET**: Set to `false` to prevent auto-opening the SmartWallet dev URL in `npm run tunnel-dev` (default: `true`).
 
 ## Development Workflow Example
 
@@ -162,7 +156,7 @@ git status
 
 # 2. Plan Creation (Agent performs)
 # Agent reviews src/index.ts and HTML wallet functions
-# Agent audits vWallet-dev.html and src/smartwallet-dev.html for impacted markup/scripts
+# Agent audits src/smartwallet-dev.html for impacted markup/scripts
 # Agent identifies required changes and dependencies
 
 # 3. Test Implementation (Agent performs if needed)
@@ -171,7 +165,7 @@ git status
 # 4. Code Implementation (Agent performs)
 # Agent makes changes to wallet functionality
 # Agent updates SDK exports if needed
-# Agent applies HTML/template changes only in vWallet-dev.html and src/smartwallet-dev.html
+# Agent applies HTML/template changes only in src/smartwallet-dev.html
 
 # 5. User Testing (User performs)
 npm run mini-build  # Quick build for testing

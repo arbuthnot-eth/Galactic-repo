@@ -5,12 +5,7 @@ const path = require('path');
 // Define input and output files
 const htmlFiles = [
   {
-    input: 'vWallet-dev.html',
-    output: 'vWallet.html',
-    name: 'vWallet'
-  },
-  {
-    input: 'src/smartwallet-dev.html', 
+    input: 'src/smartwallet-dev.html',
     output: 'src/smartwallet.html',
     name: 'SmartWallet'
   }
@@ -24,7 +19,7 @@ const zkLoginBundlePath = path.join(__dirname, 'dist/zklogin-helpers.iife.js');
 /**
  * Wrap a bundle in a base64 loader so the browser never parses the raw code inline.
  * This avoids HTML parser edge-cases (e.g. unexpected identifiers) while keeping
- * the single-file build behavior for SmartWallet and vWallet outputs.
+ * the single-file build behavior for SmartWallet outputs.
  */
 function createInlineLoader(bundle, { label }) {
   if (!bundle) return '';
@@ -65,7 +60,7 @@ try {
     process.exit(1);
   }
 
-  // Read the core bundle for vWallet
+  // Read the core bundle for SmartWallet
   let coreBundle = '';
   if (hasCore) {
     coreBundle = fs.readFileSync(coreBundlePath, 'utf8');
@@ -115,7 +110,7 @@ try {
     // Read the base HTML file
     let html = fs.readFileSync(inputPath, 'utf8');
     
-    // Choose bundle based on target: minimal for SmartWallet, core for vWallet
+    // Choose bundle based on target: minimal for SmartWallet
     const useMinimal = file.name === 'SmartWallet' && hasMinimal;
     const bundleToUse = useMinimal ? minimalBundle : coreBundle;
     const bundleName = useMinimal ? 'minimal' : 'core';
@@ -163,19 +158,17 @@ try {
       window.__SMARTWALLET_ZKLOGIN_BASE64 = '${zkLoginBundleBase64}';
       window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/png;base64,${passkeyIconBase64}';
     </script>`;
-    } else if (hasExtended) {
-      // For main vWallet, load extended bundle immediately via loader
-      bundleReplacement += createInlineLoader(extendedBundle, { label: 'vWallet extended' });
     }
 
     html = html.replace('<!-- BUNDLE_PLACEHOLDER -->', bundleReplacement);
     
     // Add/replace favicon: if dev link exists, replace with data URL for single-file prod
-    const faviconTxtPath = path.join(__dirname, 'assets', 'vWallet.txt');
+    const faviconTxtPath = path.join(__dirname, 'assets', 'vw-favicon-original.png');
     const faviconLinkRegex = /<link\s+[^>]*rel=["']icon["'][^>]*>/i;
     const hasFaviconLink = faviconLinkRegex.test(html);
     if (fs.existsSync(faviconTxtPath)) {
-      const iconBase64 = fs.readFileSync(faviconTxtPath, 'utf8').trim();
+      const iconBuffer = fs.readFileSync(faviconTxtPath);
+      const iconBase64 = iconBuffer.toString('base64');
       const dataUrlTag = `<link rel="icon" type="image/png" href="data:image/png;base64,${iconBase64}">`;
       if (hasFaviconLink) {
         html = html.replace(faviconLinkRegex, dataUrlTag);

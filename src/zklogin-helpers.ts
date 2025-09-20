@@ -1,4 +1,4 @@
-// On-demand zkLogin helper bundle, loaded only when the SmartWallet needs
+// On-demand zkLogin helper bundle, loaded only when the Galactic SmartWallet needs
 // advanced jwt/seed utilities. This keeps the minimal bundle smaller while
 // preserving existing window.SuiSDK semantics once helpers are injected.
 
@@ -44,7 +44,7 @@ if (globalTarget && !globalTarget.__zkLoginHelpersLoaded__) {
   globalTarget.__zkLoginHelpersLoaded__ = true;
 
   if (typeof globalTarget.console !== 'undefined') {
-    globalTarget.console.log('SmartWallet: zkLogin helpers loaded');
+    globalTarget.console.log('Galactic: zkLogin helpers loaded');
   }
 }
 

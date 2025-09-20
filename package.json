@@ -1,12 +1,12 @@
 {
-  "name": "vWallet",
+  "name": "galactic-wallet",
   "version": "0.0.2",
-  "description": "All-in-one multichain wallet software",
+  "description": "Galactic smart wallet for Sui blockchain",
   "author": "Brandon Arbuthnot",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/arbuthnot-eth/vWallet"
+    "url": "https://github.com/arbuthnot-eth/Galactic-repo"
   },
   "main": "src/index.ts",
   "scripts": {

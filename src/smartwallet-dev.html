@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartWallet UI</title>
+    <title>Galactic Wallet</title>
 
     <!-- Dev favicon: served from assets; injector may override in prod -->
     <link rel="icon" type="image/png" href="/assets/favicon-128.png">
@@ -12,7 +12,6 @@
         window.addEventListener('load',function(){
             const link=document.querySelector('link[rel="icon"]');
             if(link&&link.href){
-                window.getSmartWalletIconUrl=function(){return link.href};
                 const styleEl=document.createElement('style');
                 styleEl.id='sw-favicon-var';
                 styleEl.textContent=`:root{--sw-favicon-url:url("${link.href}")}`;
@@ -131,72 +130,6 @@
         .error{background:#fdf2f2;border-left:4px solid #e74c3c;padding:10px;margin:10px 0;color:#c0392b}
         .success{background:#d4edda;border-left:4px solid #28a745;padding:10px;margin:10px 0;color:#155724}
         
-        /* Contract-specific styles */
-        .contract-card {
-            background: linear-gradient(145deg, rgba(45,74,102,.8), rgba(30,58,82,.8));
-            border: 1px solid rgba(69,139,189,.5);
-            border-radius: 10px;
-            padding: 20px;
-            margin: 15px 0;
-            backdrop-filter: blur(10px);
-        }
-        .contract-card-group {
-            margin-top: 20px;
-            padding-top: 18px;
-            border-top: 1px solid rgba(69,139,189,.28);
-        }
-        details.section-toggle {
-            border: 1px solid rgba(69,139,189,.35);
-            border-radius: 10px;
-            background: linear-gradient(145deg, rgba(30,58,82,.65), rgba(45,74,102,.65));
-            box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
-        }
-        details.section-toggle summary {
-            cursor: pointer;
-            font-weight: 600;
-            color: #cfe4f7;
-            font-size: 15px;
-            padding: 14px 18px;
-            list-style: none;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        details.section-toggle summary .summary-status {
-            font-size: 12px;
-            color: #8fb9df;
-            font-weight: 500;
-        }
-        details.section-toggle summary::-webkit-details-marker { display: none; }
-        details.section-toggle summary::after {
-            content: '▾';
-            font-size: 14px;
-            transition: transform .2s ease;
-            color: #8fb9df;
-        }
-        details.section-toggle[open] summary::after {
-            transform: rotate(180deg);
-        }
-        details.section-toggle[open] summary {
-            border-bottom: 1px solid rgba(69,139,189,.25);
-            background: rgba(69,139,189,.12);
-        }
-        details.section-toggle[data-connected="true"] summary {
-            background: rgba(39, 174, 96, .12);
-            border-bottom-color: rgba(39, 174, 96, .25);
-            color: #bff5d6;
-        }
-        details.section-toggle[data-connected="true"] summary::after {
-            color: #7edc8f;
-        }
-        details.section-toggle[data-connected="true"] summary .summary-status {
-            color: #7edc8f;
-        }
-        details.section-toggle .contract-card {
-            margin: 0;
-            border: none;
-            border-radius: 0 0 10px 10px;
-        }
         .address-display {
             font-family: 'Courier New', monospace;
             background: rgba(0,0,0,.3);
@@ -218,23 +151,6 @@
             width: 100%;
             box-sizing: border-box;
         }
-        .proposal-card {
-            background: rgba(69,139,189,.1);
-            border: 1px solid rgba(69,139,189,.3);
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-        }
-        .approval-status {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .approval-status.pending { background: #ffc107; color: #000; }
-        .approval-status.approved { background: #28a745; color: #fff; }
-        .approval-status.executed { background: #6c757d; color: #fff; }
 
         /* Modal styles */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; }
@@ -277,7 +193,7 @@
             if (window.SuiSDK) return; // Already injected (e.g., in production build)
             try {
                 const s=document.createElement('script');
-                s.src='/dist/sui-sdk-bundle.iife.js';
+                s.src='/dist/sui-sdk-minimal.iife.js';
                 s.async=false;
                 s.onload=function(){console.log('Dev SDK bundle loaded');};
                 s.onerror=function(){console.warn('Dev SDK bundle not found. Run "npm run build" or serve dist/.');};
@@ -351,62 +267,20 @@
     </script>
     
     <script type="module">
-        // Contract Configuration
-        const CONTRACT_CONFIG = {
-            PACKAGE_IDS: {
-                devnet: '',
-                testnet: '0xe427ece956321d00164ada40d6d1f4ba7bb9313881dbd1e551ee0fd5e2379723',
-                mainnet: ''
-            },
-            MODULES: {
-                WALLET: 'core',
-                ROSTER: 'roster',
-                MULTISIG: 'multisig'
-            }
-        };
-
-        function getPackageId() {
-            try {
-                const key = `vwallet:packageId:${currentNetwork}`;
-                const override = localStorage.getItem(key);
-                if (override && /^0x[0-9a-fA-F]{40,}$/.test(override)) return override;
-            } catch (_) {}
-            const ids = CONTRACT_CONFIG.PACKAGE_IDS || {};
-            return ids[currentNetwork] || ids.testnet || ids.devnet || ids.mainnet || '';
-        }
-
-        // Roster discovery configuration
-        const DISCOVERY_CONFIG = {
-            // Optional: provide canonical roster IDs per network to avoid discovery
-            // Fill these after deployment; leave empty strings to skip
-            rosterIds: {
-                devnet: '',
-                testnet: '0x117a40896e2c86aa96b08206b8540f69240993d196ba35efb06746d9765e4614',
-                mainnet: ''
-            },
-            // Optional: SuiNS name that carries a `roster_id` record in NameRecord.data
-            // Example: 'roster.sui' → NameRecord.data.roster_id = "0x..."
-            suinsName: 'roster.sui'
-        };
 
         const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{2,}$/;
         const HEX_STRING_RE = /^(0x)?[0-9a-fA-F]{2,}$/;
         const SUINS_NAME_RE = /^[a-z0-9]+(?:[-.][a-z0-9]+)*\.sui$/i;
 
         let currentWallet = null;
-        let currentNetwork = 'testnet'; // Your contracts are on testnet
+        let currentNetwork = 'testnet';
         let suiClient = null;
-        let rosterId = null; // Will store the shared Roster object ID
         let connectedWalletStandard = null; // Will store connected wallet standard wallet
-        let walletControlsCollapsed = false;
-        let pendingManagementToggle = null;
         const suinsResolutionCache = new Map();
         const suinsReverseCache = new Map();
         let currentReverseLookupToken = 0;
         let sdkReadyPromise = null;
         let bootstrapPromise = null;
-        let rosterLookupPromise = null;
-        let rosterPrefetchDone = false;
 
 
         const ZKLOGIN_CONFIG = {
@@ -420,8 +294,8 @@
         let pendingZkLoginContext = null;
 
         const ENOKI_STORAGE_KEYS = {
-            API_KEY: 'smartwallet:enoki:apiKey',
-            API_URL: 'smartwallet:enoki:apiUrl'
+            API_KEY: 'galactic:enoki:apiKey',
+            API_URL: 'galactic:enoki:apiUrl'
         };
 
         let cachedEnokiClient = null;
@@ -501,62 +375,6 @@
             return addresses;
         }
 
-        async function fetchRosterWalletMemberships(memberAddress) {
-            if (!rosterId) return [];
-            try {
-                if (!suiClient) {
-                    await initializeSuiClient();
-                }
-                const { Transaction, normalizeSuiAddress } = window.SuiSDK.Sui;
-                const normalizedMember = normalizeSuiAddress(memberAddress);
-                const tx = new Transaction();
-                tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.ROSTER}::wallets_of`,
-                    arguments: [
-                        tx.object(rosterId),
-                        tx.pure.address(normalizedMember)
-                    ]
-                });
-
-                const inspection = await suiClient.devInspectTransactionBlock({
-                    sender: normalizedMember,
-                    transactionBlock: tx
-                });
-
-                const results = inspection && inspection.results ? inspection.results : [];
-                if (!results.length || !Array.isArray(results[0]?.returnValues)) {
-                    return [];
-                }
-
-                const wallets = [];
-                const returnValues = results[0].returnValues;
-                for (const entry of returnValues) {
-                    if (!entry || entry.length < 1) continue;
-                    const raw = entry[0];
-                    let bytes = null;
-                    if (typeof raw === 'string') {
-                        bytes = base64ToUint8Array(raw);
-                    } else if (Array.isArray(raw)) {
-                        bytes = Uint8Array.from(raw);
-                    } else if (raw instanceof Uint8Array) {
-                        bytes = raw;
-                    }
-                    if (!bytes || !bytes.length) continue;
-                    const decoded = decodeAddressVector(bytes);
-                    for (const addr of decoded) {
-                        if (!addr) continue;
-                        const normalizedAddr = (window.SuiSDK?.Sui?.normalizeSuiAddress)
-                            ? window.SuiSDK.Sui.normalizeSuiAddress(addr)
-                            : addr.toLowerCase();
-                        if (!wallets.includes(normalizedAddr)) wallets.push(normalizedAddr);
-                    }
-                }
-                return wallets;
-            } catch (error) {
-                logOutput('Roster membership lookup failed: ' + error.message, true);
-                return [];
-            }
-        }
 
         function resolveEnokiNetwork(network) {
             switch ((network || '').toLowerCase()) {
@@ -714,7 +532,7 @@
                 scope: 'openid email profile',
                 nonce: nonce,
                 prompt: 'select_account',
-                state: 'zklogin_smartwallet'
+                state: 'zklogin_galactic'
             });
             return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
         }
@@ -988,7 +806,7 @@
                         prover: proverDetails,
                         canSign: Boolean(signatureInputs)
                     };
-                    sessionStorage.setItem('smartwallet:zkLogin', JSON.stringify(zkLoginSessionData));
+                    sessionStorage.setItem('galactic:zkLogin', JSON.stringify(zkLoginSessionData));
                     logOutput('🔐 zkLogin proof stored in session storage');
                 } catch (storageError) {
                     logOutput('Warning: Failed to store zkLogin proof in session storage: ' + storageError.message, false);
@@ -1005,7 +823,6 @@
                 try {
                     await findMyWallets();
                 } catch (e) {
-                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
                 }
             } catch (error) {
                 logOutput('zkLogin connection failed: ' + error.message, true);
@@ -1017,21 +834,21 @@
 
         async function restoreZkLoginFromSession() {
             try {
-                const stored = sessionStorage.getItem('smartwallet:zkLogin');
+                const stored = sessionStorage.getItem('galactic:zkLogin');
                 if (!stored) {
                     return false;
                 }
 
                 const sessionData = JSON.parse(stored);
                 if (!sessionData || !sessionData.address) {
-                    sessionStorage.removeItem('smartwallet:zkLogin');
+                    sessionStorage.removeItem('galactic:zkLogin');
                     return false;
                 }
 
                 // Check if the session data is still valid (not expired)
                 const now = Date.now();
                 if (sessionData.expiresAt && now > sessionData.expiresAt) {
-                    sessionStorage.removeItem('smartwallet:zkLogin');
+                    sessionStorage.removeItem('galactic:zkLogin');
                     logOutput('zkLogin session expired, please reconnect');
                     return false;
                 }
@@ -1045,7 +862,7 @@
                         const maxEpoch = parseInt(sessionData.maxEpoch);
 
                         if (currentEpoch >= maxEpoch) {
-                            sessionStorage.removeItem('smartwallet:zkLogin');
+                            sessionStorage.removeItem('galactic:zkLogin');
                             logOutput('zkLogin proof expired (epoch exceeded), please reconnect');
                             return false;
                         }
@@ -1098,13 +915,12 @@
                 try {
                     await findMyWallets();
                 } catch (e) {
-                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
                 }
 
                 return true;
             } catch (error) {
                 logOutput('Failed to restore zkLogin session: ' + error.message, true);
-                sessionStorage.removeItem('smartwallet:zkLogin');
+                sessionStorage.removeItem('galactic:zkLogin');
                 return false;
             }
         }
@@ -1208,36 +1024,6 @@
             }
         }
 
-        function scheduleSmartWalletManagementToggle(shouldShow) {
-            const runToggle = () => {
-                pendingManagementToggle = null;
-                try {
-                    setSmartWalletManagementVisible(shouldShow);
-                } catch (error) {
-                    console.warn('Failed to toggle smart wallet management visibility:', error.message || error);
-                }
-            };
-
-            if (pendingManagementToggle && typeof pendingManagementToggle.cancel === 'function') {
-                pendingManagementToggle.cancel();
-                pendingManagementToggle = null;
-            }
-
-            if (typeof window !== 'undefined') {
-                if (typeof window.requestAnimationFrame === 'function' && typeof window.cancelAnimationFrame === 'function') {
-                    const frameId = window.requestAnimationFrame(runToggle);
-                    pendingManagementToggle = { cancel: () => window.cancelAnimationFrame(frameId) };
-                    return;
-                }
-                if (typeof window.setTimeout === 'function') {
-                    const timeoutId = window.setTimeout(runToggle, 0);
-                    pendingManagementToggle = { cancel: () => window.clearTimeout(timeoutId) };
-                    return;
-                }
-            }
-
-            runToggle();
-        }
 
         function updateWalletConnectionControls(isConnected) {
             try {
@@ -1274,19 +1060,11 @@
                     }
                     controls.style.display = 'none';
                     if (infoPanel) infoPanel.style.display = 'block';
-                    const shouldShowManagement = Boolean(currentWallet && currentWallet.type !== 'view_only');
-                    scheduleSmartWalletManagementToggle(shouldShowManagement);
                 } else {
                     controls.open = false;
                     walletControlsCollapsed = true;
                     controls.style.display = '';
                     if (infoPanel) infoPanel.style.display = 'none';
-                    if (pendingManagementToggle && typeof pendingManagementToggle.cancel === 'function') {
-                        pendingManagementToggle.cancel();
-                        pendingManagementToggle = null;
-                    }
-                    setSmartWalletManagementVisible(false);
-                    hideSmartWalletOperations();
                 }
             } catch (_) {}
         }
@@ -1959,13 +1737,6 @@
             logOutput(`Address: ${account.address}`);
             await getWalletBalance();
 
-            // Automatically find wallets after successful connection
-            try {
-                await findMyWallets();
-            } catch (e) {
-                // Non-fatal error, just log it
-                logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
-            }
         }
 
         // Open modal with wallet selection (suiWallets are already filtered for Sui compatibility)
@@ -2182,7 +1953,6 @@
                         await findMyWallets();
                     } catch (e) {
                         // Non-fatal error, just log it
-                        logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
                     }
                 } else {
                     throw new Error('No accounts found in wallet');
@@ -2228,7 +1998,6 @@
                     await findMyWallets();
                 } catch (e) {
                     // Non-fatal error, just log it
-                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
                 }
             } catch (e) {
                 throw new Error('window.sui connection failed: ' + e.message);
@@ -2306,7 +2075,6 @@
                     await findMyWallets();
                 } catch (e) {
                     // Non-fatal error, just log it
-                    logOutput('Auto-discovery of smart wallets failed: ' + e.message, false);
                 }
 
             } catch (e) {
@@ -2338,7 +2106,7 @@
 
                 // Clear zkLogin session storage
                 try {
-                    sessionStorage.removeItem('smartwallet:zkLogin');
+                    sessionStorage.removeItem('galactic:zkLogin');
                 } catch (_) {}
                 
                 document.getElementById('walletInfo').style.display = 'none';
@@ -2346,7 +2114,6 @@
                 showCurrentWalletAddress('', { skipReverse: true });
                 document.getElementById('currentBalance').textContent = 'Loading...';
 
-                hideSmartWalletOperations();
                 logOutput('Wallet disconnected');
             } catch (error) {
                 logOutput('Error disconnecting wallet: ' + error.message, true);
@@ -2621,472 +2388,12 @@
             }
         }
 
-        // Create a new Smart Wallet
-        async function createSmartWallet() {
-            if (!currentWallet) {
-                logOutput('No wallet connected', true);
-                return;
-            }
 
-            const walletName = document.getElementById('walletName').value.trim();
-            const recoveryKey = document.getElementById('recoveryKey').value.trim() || currentWallet.address;
 
-            if (!walletName) {
-                logOutput('Please enter a wallet name', true);
-                return;
-            }
 
-            try {
-                logOutput('Creating smart wallet...');
-                const { Transaction, Clock } = window.SuiSDK.Sui;
-                const tx = new Transaction();
 
-                // Get the shared Clock object (0x6)
-                const clockId = '0x6';
 
-                const smartWallet = tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::create_wallet`,
-                    arguments: [
-                        tx.pure.address(currentWallet.address),
-                        tx.pure.address(recoveryKey),
-                        tx.pure.vector('u8', Array.from(new TextEncoder().encode(walletName))),
-                        tx.object(clockId)
-                    ]
-                });
 
-                // Transfer the created wallet to the sender
-                tx.transferObjects([smartWallet], tx.pure.address(currentWallet.address));
-
-                const result = await signAndExecuteTransaction(tx);
-
-                logOutput(`Smart wallet created! Transaction: ${result.digest}`);
-                await findMyWallets();
-            } catch (error) {
-                logOutput('Error creating smart wallet: ' + error.message, true);
-            }
-        }
-
-        // Find wallets owned by current user
-        async function findMyWallets() {
-            if (!currentWallet) {
-                logOutput('No wallet connected', true);
-                return;
-            }
-
-            try {
-                logOutput('Finding your smart wallets...');
-
-                const walletMap = new Map();
-                let rosterNewCount = 0;
-
-                function registerWalletObject(obj, source) {
-                    if (!obj || !obj.data || !obj.data.objectId) return;
-                    const walletId = (window.SuiSDK?.Sui?.normalizeSuiAddress)
-                        ? window.SuiSDK.Sui.normalizeSuiAddress(obj.data.objectId)
-                        : String(obj.data.objectId).toLowerCase();
-                    if (!walletMap.has(walletId)) {
-                        walletMap.set(walletId, {
-                            id: walletId,
-                            object: obj,
-                            sources: new Set([source])
-                        });
-                        if (source === 'roster') rosterNewCount += 1;
-                    } else {
-                        const entry = walletMap.get(walletId);
-                        entry.sources.add(source);
-                        if (!walletMap.get(walletId).object?.data?.content && obj.data?.content) {
-                            entry.object = obj;
-                        }
-                    }
-                }
-
-                const ownedObjects = await suiClient.getOwnedObjects({
-                    owner: currentWallet.address,
-                    filter: {
-                        StructType: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::SmartWallet`
-                    },
-                    options: { showContent: true, showDisplay: true }
-                });
-
-                ownedObjects.data.forEach((obj) => registerWalletObject(obj, 'owned'));
-
-                const rosterWalletIds = await fetchRosterWalletMemberships(currentWallet.address);
-                const missingIds = [];
-                for (const wid of rosterWalletIds) {
-                    const normalized = (window.SuiSDK?.Sui?.normalizeSuiAddress)
-                        ? window.SuiSDK.Sui.normalizeSuiAddress(wid)
-                        : wid.toLowerCase();
-                    if (!walletMap.has(normalized)) {
-                        missingIds.push(normalized);
-                    } else {
-                        walletMap.get(normalized).sources.add('roster');
-                    }
-                }
-
-                if (missingIds.length) {
-                    try {
-                        const rosterObjects = await suiClient.multiGetObjects({
-                            ids: missingIds,
-                            options: { showContent: true, showDisplay: true }
-                        });
-                        rosterObjects.forEach((obj, index) => {
-                            if (obj?.data?.objectId) {
-                                const walletId = obj.data.objectId;
-                                registerWalletObject(obj, 'roster');
-                            } else {
-                                const fallbackId = missingIds[index];
-                                if (!walletMap.has(fallbackId)) {
-                                    walletMap.set(fallbackId, {
-                                        id: fallbackId,
-                                        object: obj,
-                                        sources: new Set(['roster'])
-                                    });
-                                }
-                            }
-                        });
-                    } catch (error) {
-                        logOutput('Failed to fetch roster-linked wallets: ' + error.message, true);
-                    }
-                }
-
-                const walletsList = document.getElementById('walletsList');
-                walletsList.innerHTML = '';
-
-                const walletEntries = Array.from(walletMap.values());
-
-                if (!walletEntries.length) {
-                    walletsList.innerHTML = '<p>No smart wallets found</p>';
-                    hideSmartWalletOperations();
-                    logOutput('No smart wallets found');
-                    return;
-                }
-
-                walletEntries.sort((a, b) => {
-                    const aRank = a.sources.has('owned') ? 0 : 1;
-                    const bRank = b.sources.has('owned') ? 0 : 1;
-                    if (aRank !== bRank) return aRank - bRank;
-                    return a.id.localeCompare(b.id);
-                });
-
-                walletEntries.forEach(({ id, object, sources }) => {
-                    const fields = object?.data?.content?.fields || {};
-                    let nameBytes = null;
-                    try {
-                        if (fields.name instanceof Uint8Array) {
-                            nameBytes = fields.name;
-                        } else if (Array.isArray(fields.name)) {
-                            nameBytes = new Uint8Array(fields.name);
-                        } else if (fields.name && typeof fields.name === 'object' && 'bytes' in fields.name) {
-                            nameBytes = new Uint8Array(fields.name.bytes);
-                        } else if (typeof fields.name === 'string') {
-                            nameBytes = new TextEncoder().encode(fields.name);
-                        }
-                    } catch (_) {}
-                    let walletName = 'Unknown';
-                    try {
-                        if (nameBytes) {
-                            walletName = new TextDecoder().decode(nameBytes);
-                        }
-                    } catch (_) {}
-                    const memberCount = getMemberCountFromWalletFields(fields);
-                    const balanceNumber = Number(fields.balance || 0) / 1_000_000_000;
-                    let sourceLabel = 'Member';
-                    if (sources.has('owned') && sources.has('roster')) {
-                        sourceLabel = 'Owner & Member';
-                    } else if (sources.has('owned')) {
-                        sourceLabel = 'Owner';
-                    }
-
-                    const card = document.createElement('div');
-                    card.className = 'contract-card';
-                    card.innerHTML = `
-                        <h4>Smart Wallet (${sourceLabel})</h4>
-                        <div class="address-display">ID: ${id}</div>
-                        <p><strong>Name:</strong> ${walletName}</p>
-                        <p><strong>Version:</strong> ${fields.version ?? 'Unknown'}</p>
-                        <p><strong>Balance:</strong> ${balanceNumber} SUI</p>
-                        <p><strong>Members:</strong> ${memberCount}</p>
-                        <button onclick="selectSmartWallet('${id}')">Select Wallet</button>
-                        <button onclick="viewWalletDetails('${id}')">View Details</button>
-                    `;
-                    walletsList.appendChild(card);
-                });
-
-                logOutput(`Found ${walletEntries.length} smart wallet(s)`);
-
-                if (rosterNewCount > 0) {
-                    logOutput(`Roster lookup added ${rosterNewCount} wallet reference(s) for this member.`);
-                }
-
-                if (walletEntries.length === 1) {
-                    const singleWalletId = walletEntries[0].id;
-                    window.selectSmartWallet(singleWalletId);
-                    logOutput(`Automatically selected the only available wallet: ${singleWalletId}`);
-                }
-            } catch (error) {
-                logOutput('Error finding wallets: ' + error.message, true);
-            }
-        }
-
-        function setSmartWalletManagementVisible(shouldShow) {
-            const managementSection = document.getElementById('smartWalletManagementSection');
-            if (managementSection) {
-                managementSection.style.display = shouldShow ? 'block' : 'none';
-                managementSection.classList.toggle('visible', Boolean(shouldShow));
-            }
-            if (shouldShow) {
-                queueRosterDiscovery();
-            }
-        }
-
-        function hideSmartWalletOperations() {
-            const operationsSection = document.getElementById('smartWalletOperations');
-            if (operationsSection) {
-                operationsSection.style.display = 'none';
-                operationsSection.classList.remove('visible');
-            }
-
-            const selectedWalletElement = document.getElementById('selectedWalletId');
-            if (selectedWalletElement) {
-                selectedWalletElement.textContent = 'None';
-            }
-        }
-
-        function showSmartWalletOperations() {
-            const operationsSection = document.getElementById('smartWalletOperations');
-            if (operationsSection) {
-                operationsSection.style.display = 'block';
-                operationsSection.classList.add('visible');
-            }
-        }
-
-        // Select a smart wallet for operations
-        window.selectSmartWallet = function(walletId) {
-            document.getElementById('selectedWalletId').textContent = walletId;
-            showSmartWalletOperations();
-            logOutput(`Selected smart wallet: ${walletId}`);
-        }
-
-        // View detailed wallet information
-        window.viewWalletDetails = async function(walletId) {
-            try {
-                logOutput(`Getting details for wallet ${walletId}...`);
-                const walletObj = await suiClient.getObject({
-                    id: walletId,
-                    options: { showContent: true }
-                });
-
-                const details = walletObj.data.content.fields;
-                const memberCount = getMemberCountFromWalletFields(details);
-                logOutput(`Wallet Name: ${details.name ? new TextDecoder().decode(new Uint8Array(details.name)) : 'Unknown'}`);
-                logOutput(`Version: ${details.version}`);
-                logOutput(`Created: ${new Date(Number(details.created_at)).toLocaleString()}`);
-                logOutput(`Recovery Key: ${details.recovery_key}`);
-                logOutput(`Members: ${memberCount}`);
-                logOutput(`Proposals: ${((details.proposals && details.proposals.fields && details.proposals.fields.size) || 0)}`);
-                logOutput(`Balance: ${Number(details.balance || 0) / 1_000_000_000} SUI`);
-            } catch (error) {
-                logOutput('Error getting wallet details: ' + error.message, true);
-            }
-        }
-
-        // Add a new member to the smart wallet
-        async function addMember() {
-            const walletId = document.getElementById('selectedWalletId').textContent;
-            const newMember = document.getElementById('newMemberAddress').value.trim();
-            const roleName = document.getElementById('memberRole').value.trim() || 'member';
-            const weight = parseInt(document.getElementById('memberWeight').value) || 1;
-            const permissions = parseInt(document.getElementById('memberPermissions').value) || 7;
-
-            if (!walletId || !newMember) {
-                logOutput('Please select a wallet and enter member address', true);
-                return;
-            }
-
-            if (newMember.toLowerCase() === currentWallet.address.toLowerCase()) {
-                logOutput('This address is already a member (creator). Use a different address.', true);
-                return;
-            }
-
-            if (!rosterId) {
-                logOutput('No roster found - please initialize roster first', true);
-                return;
-            }
-
-            try {
-                logOutput(`Adding member ${newMember} to wallet ${walletId}...`);
-                const { Transaction } = window.SuiSDK.Sui;
-                const tx = new Transaction();
-
-                tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::add_member`,
-                    arguments: [
-                        tx.object(walletId),
-                        tx.object(rosterId),
-                        tx.pure.address(newMember),
-                        tx.pure.vector('u8', Array.from(new TextEncoder().encode(roleName))),
-                        tx.pure.u64(weight),
-                        tx.pure.u64(permissions),
-                        tx.pure.address(currentWallet.address)
-                    ]
-                });
-
-                const result = await signAndExecuteTransaction(tx);
-
-                logOutput(`Member added! Transaction: ${result.digest}`);
-                
-                // Clear form
-                document.getElementById('newMemberAddress').value = '';
-                document.getElementById('memberRole').value = '';
-                document.getElementById('memberWeight').value = '';
-                document.getElementById('memberPermissions').value = '';
-            } catch (error) {
-                logOutput('Error adding member: ' + error.message, true);
-            }
-        }
-
-        // Create a new proposal
-        async function createProposal() {
-            const walletId = document.getElementById('selectedWalletId').textContent;
-            const proposalId = parseInt(document.getElementById('proposalId').value) || Date.now();
-            const actionKind = document.getElementById('actionKind').value.trim() || 'transfer';
-            const targetAddress = document.getElementById('targetAddress').value.trim();
-            const actionData = document.getElementById('actionData').value.trim();
-            const threshold = parseInt(document.getElementById('proposalThreshold').value) || 1;
-            const deadline = parseInt(document.getElementById('proposalDeadline').value) || 0;
-
-            if (!walletId || !targetAddress || !actionData) {
-                logOutput('Please fill in all required proposal fields', true);
-                return;
-            }
-
-            try {
-                logOutput(`Creating proposal ${proposalId} for wallet ${walletId}...`);
-                const { Transaction } = window.SuiSDK.Sui;
-                const tx = new Transaction();
-
-                // Convert action data to bytes
-                let dataBytes;
-                if (actionKind === 'transfer') {
-                    const amountInMist = Math.floor(parseFloat(actionData) * 1_000_000_000);
-                    try {
-                        const { bcs } = window.SuiSDK.BCS;
-                        // Prefer ser API; fallback to builder style
-                        const bytes = (bcs && typeof bcs.ser === 'function')
-                            ? bcs.ser('u64', amountInMist).toBytes()
-                            : bcs.u64().serialize(amountInMist).toBytes();
-                        dataBytes = bytes;
-                    } catch (_) {
-                        throw new Error('BCS encoding unavailable for u64. Ensure @mysten/bcs is bundled.');
-                    }
-                } else {
-                    dataBytes = new TextEncoder().encode(actionData);
-                }
-
-                const clockId = '0x6';
-
-                tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::propose_action`,
-                    arguments: [
-                        tx.object(walletId),
-                        tx.pure.u64(proposalId),
-                        tx.pure.vector('u8', Array.from(new TextEncoder().encode(actionKind))),
-                        tx.pure.address(targetAddress),
-                        tx.pure.vector('u8', Array.from(dataBytes)),
-                        tx.pure.u64(threshold),
-                        tx.pure.u64(deadline),
-                        // Empty vector<Condition>: explicit element type using vector helper
-                        tx.pure.vector(`${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::Condition`, []),
-                        tx.object(clockId)
-                    ]
-                });
-
-                const result = await signAndExecuteTransaction(tx);
-
-                logOutput(`Proposal created! Transaction: ${result.digest}`);
-                
-                // Clear form
-                document.getElementById('proposalId').value = '';
-                document.getElementById('actionKind').value = '';
-                document.getElementById('targetAddress').value = '';
-                document.getElementById('actionData').value = '';
-                document.getElementById('proposalThreshold').value = '';
-                document.getElementById('proposalDeadline').value = '';
-            } catch (error) {
-                logOutput('Error creating proposal: ' + error.message, true);
-            }
-        }
-
-        // Approve a proposal
-        async function approveProposal() {
-            const walletId = document.getElementById('selectedWalletId').textContent;
-            const proposalId = parseInt(document.getElementById('approveProposalId').value);
-
-            if (!walletId || !proposalId) {
-                logOutput('Please enter proposal ID', true);
-                return;
-            }
-
-            try {
-                logOutput(`Approving proposal ${proposalId} for wallet ${walletId}...`);
-                const { Transaction } = window.SuiSDK.Sui;
-                const tx = new Transaction();
-
-                const clockId = '0x6';
-
-                tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::approve_proposal`,
-                    arguments: [
-                        tx.object(walletId),
-                        tx.pure.u64(proposalId),
-                        tx.object(clockId)
-                    ]
-                });
-
-                const result = await signAndExecuteTransaction(tx);
-
-                logOutput(`Proposal approved! Transaction: ${result.digest}`);
-                document.getElementById('approveProposalId').value = '';
-            } catch (error) {
-                logOutput('Error approving proposal: ' + error.message, true);
-            }
-        }
-
-        // Deposit SUI into smart wallet
-        async function depositToWallet() {
-            const walletId = document.getElementById('selectedWalletId').textContent;
-            const amount = parseFloat(document.getElementById('depositAmount').value);
-
-            if (!walletId || !amount || amount <= 0) {
-                logOutput('Please enter valid deposit amount', true);
-                return;
-            }
-
-            try {
-                logOutput(`Depositing ${amount} SUI to wallet ${walletId}...`);
-                const { Transaction } = window.SuiSDK.Sui;
-                const tx = new Transaction();
-
-                const amountInMist = Math.floor(amount * 1_000_000_000);
-                const coin = tx.splitCoins(tx.gas, [tx.pure.u64(amountInMist)]);
-
-                tx.moveCall({
-                    target: `${getPackageId()}::${CONTRACT_CONFIG.MODULES.WALLET}::deposit`,
-                    arguments: [
-                        tx.object(walletId),
-                        coin
-                    ]
-                });
-
-                const result = await signAndExecuteTransaction(tx);
-
-                logOutput(`Deposit successful! Transaction: ${result.digest}`);
-                document.getElementById('depositAmount').value = '';
-                await findMyWallets(); // Refresh wallet list
-            } catch (error) {
-                logOutput('Error depositing: ' + error.message, true);
-            }
-        }
 
         // Network change handler
         function changeNetwork() {
@@ -3119,7 +2426,7 @@
                     logOutput('Invalid package ID format. Expect 0x-prefixed hex.', true);
                     return;
                 }
-                const key = `vwallet:packageId:${currentNetwork}`;
+                const key = `galactic:packageId:${currentNetwork}`;
                 localStorage.setItem(key, val);
                 const pidEl = document.getElementById('packageIdDisplay');
                 if (pidEl) pidEl.textContent = val;
@@ -3131,7 +2438,7 @@
 
         function clearPackageIdOverride() {
             try {
-                const key = `vwallet:packageId:${currentNetwork}`;
+                const key = `galactic:packageId:${currentNetwork}`;
                 localStorage.removeItem(key);
                 const pidEl = document.getElementById('packageIdDisplay');
                 if (pidEl) pidEl.textContent = getPackageId() || '(unset)';
@@ -3200,18 +2507,9 @@
             logOutput(`Enoki API URL ${value ? 'set to ' + value : 'cleared'}.`);
             return value;
         };
-        window.initRoster = initRoster;
-        window.findRoster = findRoster;
-        // Backwards-compatible aliases removed to prefer roster naming
-        window.createSmartWallet = createSmartWallet;
-        window.findMyWallets = findMyWallets;
-        window.addMember = addMember;
-        window.createProposal = createProposal;
-        window.approveProposal = approveProposal;
-        window.depositToWallet = depositToWallet;
         window.clearZkLoginSession = function() {
             try {
-                sessionStorage.removeItem('smartwallet:zkLogin');
+                sessionStorage.removeItem('galactic:zkLogin');
                 logOutput('zkLogin session storage cleared');
             } catch (e) {
                 logOutput('Failed to clear zkLogin session: ' + e.message, true);
@@ -3235,8 +2533,6 @@
             const mainContent = document.getElementById('main-content');
 
             updateWalletConnectionControls(false);
-            setSmartWalletManagementVisible(false);
-            hideSmartWalletOperations();
 
             if (mainContent) {
                 mainContent.style.display = 'block';
@@ -3259,8 +2555,6 @@
                     section.style.display = 'block';
                     section.classList.add('visible');
                 });
-                setSmartWalletManagementVisible(false);
-                hideSmartWalletOperations();
                 if (mainContent) {
                     mainContent.classList.add('loaded');
                 }
@@ -3292,7 +2586,7 @@
 <body>
     <!-- Loading screen -->
     <div class="container" id="loading-screen">
-        <h1><span class="sw-icon" aria-hidden="true"></span> SmartWallet</h1>
+        <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
         <div class="app-loading">
             <p>Loading smart contract interface...</p>
             <div class="loading-spinner"></div>
@@ -3301,9 +2595,9 @@
 
     <!-- Main content -->
     <div class="container main-content" id="main-content">
-        <h1><span class="sw-icon" aria-hidden="true"></span> SmartWallet</h1>
+        <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
         <p style="text-align: center; color: #c3d5e8; font-size: 16px; margin-top: -10px; margin-bottom: 30px;">
-            Interface for deployed smart contracts
+            Galactic Wallet Interface
         </p>
         
 
@@ -3364,148 +2658,10 @@
             </div>
         </div>
 
-        <div id="smartWalletManagementSection" class="section" style="display: none;">
-            <h3>Smart Wallet Management</h3>
-            <div class="form-group">
-                <label>Wallet Name:</label>
-                <input type="text" id="walletName" placeholder="My Smart Wallet">
-            </div>
-            <div class="form-group">
-                <label>Recovery Key Address (optional):</label>
-                <input type="text" id="recoveryKey" placeholder="Leave empty to use current wallet">
-            </div>
-            <button onclick="createSmartWallet()" class="primary-btn">Create Smart Wallet</button>
-            <button onclick="findMyWallets()">Find My Wallets</button>
-            
-            <div id="walletsList"></div>
-        </div>
-
-        <div id="smartWalletOperations" class="section" style="display: none;">
-            <h3>Smart Wallet Operations</h3>
-            <div class="address-display">Selected Wallet:
-                <span id="selectedWalletId" class="address-value">None</span>
-                <button type="button" class="copy-btn" data-copy-target="selectedWalletId" aria-label="Copy selected wallet ID" title="Copy selected wallet ID">Copy</button>
-            </div>
-            
-            <div class="contract-card">
-                <h4>Add Member</h4>
-                <div class="form-group">
-                    <label>Member Address:</label>
-                    <input type="text" id="newMemberAddress" placeholder="0x...">
-                </div>
-                <div class="form-group">
-                    <label>Role Name:</label>
-                    <input type="text" id="memberRole" placeholder="member" value="member">
-                </div>
-                <div class="form-group">
-                    <label>Weight:</label>
-                    <input type="number" id="memberWeight" placeholder="1" value="1" min="1">
-                </div>
-                <div class="form-group">
-                    <label>Permissions (1=propose, 2=approve, 4=execute, 7=all):</label>
-                    <input type="number" id="memberPermissions" placeholder="7" value="7" min="1" max="7">
-                </div>
-                <button onclick="addMember()">Add Member</button>
-            </div>
-
-            <div class="contract-card">
-                <h4>Create Proposal</h4>
-                <div class="form-group">
-                    <label>Proposal ID:</label>
-                    <input type="number" id="proposalId" placeholder="Auto-generated if empty">
-                </div>
-                <div class="form-group">
-                    <label>Action Type:</label>
-                    <input type="text" id="actionKind" placeholder="transfer" value="transfer">
-                </div>
-                <div class="form-group">
-                    <label>Target Address:</label>
-                    <input type="text" id="targetAddress" placeholder="0x...">
-                </div>
-                <div class="form-group">
-                    <label>Action Data (for transfer: amount in SUI):</label>
-                    <input type="text" id="actionData" placeholder="1.0">
-                </div>
-                <div class="form-group">
-                    <label>Voting Threshold:</label>
-                    <input type="number" id="proposalThreshold" placeholder="1" value="1" min="1">
-                </div>
-                <div class="form-group">
-                    <label>Deadline (timestamp, 0 for no deadline):</label>
-                    <input type="number" id="proposalDeadline" placeholder="0" value="0">
-                </div>
-                <button onclick="createProposal()">Create Proposal</button>
-            </div>
-
-            <div class="contract-card">
-                <h4>Approve Proposal</h4>
-                <div class="form-group">
-                    <label>Proposal ID:</label>
-                    <input type="number" id="approveProposalId" placeholder="Proposal ID">
-                </div>
-                <button onclick="approveProposal()">Approve Proposal</button>
-            </div>
-
-            <div class="contract-card">
-                <h4>Deposit to Wallet</h4>
-                <div class="form-group">
-                    <label>Amount (SUI):</label>
-                    <input type="number" id="depositAmount" placeholder="1.0" step="0.001" min="0.001">
-                </div>
-                <button onclick="depositToWallet()">Deposit SUI</button>
-            </div>
-        </div>
-
-        <div id="contract-info" class="section">
-            <details class="section-toggle" id="contractInfoToggle">
-                <summary>📦 Contract Information</summary>
-                <div class="contract-card">
-                    <h4>Deployed Package</h4>
-                    <div class="address-display">Package ID:
-                        <span id="packageIdDisplay" class="address-value">Not set</span>
-                        <button type="button" class="copy-btn" data-copy-target="packageIdDisplay" aria-label="Copy package ID" title="Copy package ID">Copy</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="packageIdInput">Set Package ID for current network</label>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <input id="packageIdInput" type="text" placeholder="0x..." style="flex:1;" />
-                            <button onclick="savePackageIdOverride()" style="white-space:nowrap;">Save</button>
-                            <button onclick="clearPackageIdOverride()" style="white-space:nowrap; background:#6c757d;">Clear</button>
-                        </div>
-                        <div style="font-size:11px; color:#a0b3c5; margin-top:6px;">Overrides are stored in localStorage per network.</div>
-                    </div>
-                    <p><strong>Modules:</strong> core, roster, multisig</p>
-                    <p><strong>Network:</strong> <span id="currentNetwork">testnet</span></p>
-                    <div class="form-group">
-                        <label>Network Selection:</label>
-                        <select id="networkSelect" onchange="changeNetwork()">
-                            <option value="devnet">Devnet</option>
-                            <option value="testnet" selected>Testnet</option>
-                            <option value="mainnet">Mainnet</option>
-                        </select>
-                    </div>
-                    <div class="contract-card-group">
-                        <h4>Roster Management</h4>
-                        <p style="margin-top: 8px;">The roster tracks wallet memberships across the system.</p>
-                        <div class="form-group" style="margin-top: 12px;">
-                            <div class="address-display">Roster ID:
-                                <span id="rosterId" class="address-value">Not found</span>
-                                <button type="button" class="copy-btn" data-copy-target="rosterId" aria-label="Copy roster ID" title="Copy roster ID">Copy</button>
-                            </div>
-                        </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-                            <button onclick="initRoster()">Initialize Roster</button>
-                            <button onclick="findRoster()">Find Roster</button>
-                        </div>
-                    </div>
-                </div>
-            </details>
-        </div>
-
         <div class="section">
             <h3>Console Output</h3>
             <button onclick="clearOutput()">Clear Output</button>
-            <div id="output">SmartWallet Contract Interface Ready
+            <div id="output">Galactic Wallet Interface Ready
 
 </div>
         </div>

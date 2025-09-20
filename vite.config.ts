@@ -9,7 +9,7 @@ export default defineConfig({
         ? './src/index-minimal.ts'
         : process.env.BUILD_TARGET === 'zklogin'
         ? './src/zklogin-helpers.ts'
-        : './src/index-core.ts',
+        : './src/index.ts',
       name: process.env.BUILD_TARGET === 'extended'
         ? 'SuiSDKExtended'
         : process.env.BUILD_TARGET === 'minimal'
@@ -32,6 +32,10 @@ export default defineConfig({
       output: {
         inlineDynamicImports: true,
       },
+      treeshake: {
+        preset: 'smallest',
+        manualPureFunctions: ['console.log'],
+      },
     },
     outDir: process.env.BUILD_TARGET === 'extended'
       ? 'dist-temp-extended'
@@ -46,17 +50,17 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // Ensure Vite HMR works behind Cloudflare Tunnel on custom domain
-    ...(process.env.VWALLET_DEV_HOST ? {
+    ...(process.env.GALACTIC_DEV_HOST ? {
       hmr: {
-        host: process.env.VWALLET_DEV_HOST,
+        host: process.env.GALACTIC_DEV_HOST,
         protocol: 'wss',
         clientPort: 443,
       }
     } : {}),
     allowedHosts: [
       'localhost',
-      ...(process.env.VWALLET_DEV_HOST ? [process.env.VWALLET_DEV_HOST] : []),
-      ...(process.env.VWALLET_PROD_HOST ? [process.env.VWALLET_PROD_HOST] : []),
+      ...(process.env.GALACTIC_DEV_HOST ? [process.env.GALACTIC_DEV_HOST] : []),
+      ...(process.env.GALACTIC_PROD_HOST ? [process.env.GALACTIC_PROD_HOST] : []),
     ],
   },
   preview: {
@@ -64,8 +68,8 @@ export default defineConfig({
     port: 5173,
     allowedHosts: [
       'localhost',
-      ...(process.env.VWALLET_DEV_HOST ? [process.env.VWALLET_DEV_HOST] : []),
-      ...(process.env.VWALLET_PROD_HOST ? [process.env.VWALLET_PROD_HOST] : []),
+      ...(process.env.GALACTIC_DEV_HOST ? [process.env.GALACTIC_DEV_HOST] : []),
+      ...(process.env.GALACTIC_PROD_HOST ? [process.env.GALACTIC_PROD_HOST] : []),
     ],
   },
   resolve: {

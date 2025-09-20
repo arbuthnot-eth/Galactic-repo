@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# vWallet dev helper: starts Cloudflare Tunnel (if needed) and Vite dev server.
+# Galactic dev helper: starts Cloudflare Tunnel (if needed) and Vite dev server.
 # Usage:
 #   CLOUDFLARE_TUNNEL_TOKEN=... npm run tunnel-dev
 #
@@ -118,16 +118,15 @@ if ! kill -0 "$CF_BG_PID" >/dev/null 2>&1; then
 fi
 
 # Show the public URL where the app will be available through Cloudflare
-PUBLIC_HOSTNAME="${VWALLET_PUBLIC_HOSTNAME:-${PUBLIC_HOSTNAME:-dev.vwallet.red}}"
-PUBLIC_PATH="${VWALLET_PUBLIC_PATH:-/}"
+PUBLIC_HOSTNAME="${GALACTIC_PUBLIC_HOSTNAME:-${PUBLIC_HOSTNAME:-dev.vwallet.red}}"
+PUBLIC_PATH="${GALACTIC_PUBLIC_PATH:-/}"
 PUBLIC_URL="https://$PUBLIC_HOSTNAME"
 info "Cloudflare public URL: $PUBLIC_URL"
 
 # Auto-open browser when ready
 auto_open() {
-  local vv_url="$PUBLIC_URL"
-  local sw_url="$PUBLIC_URL/src/smartwallet.html"
-  local open_sw="${VWALLET_OPEN_SMARTWALLET:-true}"
+  local sw_url="$PUBLIC_URL/src/smartwallet-dev.html"
+  local open_sw="${GALACTIC_OPEN_SMARTWALLET:-true}"
   # Normalize boolean-like values
   case "${open_sw,,}" in
     false|0|no) open_sw=false ;;
@@ -138,17 +137,11 @@ auto_open() {
 
   # Open browser quietly (Linux first, macOS fallback)
   if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$vv_url" >/dev/null 2>&1 &
     if [ "$open_sw" = true ]; then
-      # Open SmartWallet after a brief delay so vWallet gets focus
-      sleep 0.75
       xdg-open "$sw_url" >/dev/null 2>&1 &
     fi
   elif command -v open >/dev/null 2>&1; then
-    open "$vv_url" >/dev/null 2>&1 &
     if [ "$open_sw" = true ]; then
-      # Open SmartWallet after a brief delay so vWallet gets focus
-      sleep 0.75
       open "$sw_url" >/dev/null 2>&1 &
     fi
   fi
@@ -183,11 +176,10 @@ fi
 # Show final clean summary
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                      🍷vWallet Ready!                      "
+echo "║                    🌌 Galactic Ready!                     "
 echo "╠════════════════════════════════════════════════════════════╝"
 echo "║ 🌐 Tunnel URLs:"
-echo "║       - $PUBLIC_URL"
-echo "║       - $PUBLIC_URL/src/smartwallet.html"
+echo "║       - $PUBLIC_URL/src/smartwallet-dev.html"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 

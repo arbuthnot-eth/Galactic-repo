@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Manual cleanup script for vWallet dev processes
+# Manual cleanup script for Galactic dev processes
 
-echo "🧹 Cleaning up vWallet dev processes..."
+echo "🧹 Cleaning up Galactic dev processes..."
 
 # Kill all processes on port 5173 (Vite)
 if command -v lsof >/dev/null 2>&1 && lsof -ti:5173 >/dev/null 2>&1; then

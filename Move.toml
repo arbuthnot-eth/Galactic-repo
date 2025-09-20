@@ -1,5 +1,5 @@
 [package]
-name = "vwallet"
+name = "galactic"
 version = "0.0.1"
 edition = "2024.beta"
 
@@ -7,4 +7,4 @@ edition = "2024.beta"
 multisig = { git = "https://github.com/MystenLabs/multisig-move.git", subdir = "move", rev = "main" }
 
 [addresses]
-vwallet = "0x0"
+galactic = "0x0"
