@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmartWallet UI</title>
-    <!-- Performance optimizations -->
-    <link rel="dns-prefetch" href="//fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
     <!-- Dev favicon: served from assets; injector may override in prod -->
     <link rel="icon" type="image/png" href="/assets/favicon-128.png">
     <script>
@@ -392,8 +390,6 @@
 
         const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{2,}$/;
         const HEX_STRING_RE = /^(0x)?[0-9a-fA-F]{2,}$/;
-        const BASE58_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,}$/;
-        const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
         const SUINS_NAME_RE = /^[a-z0-9]+(?:[-.][a-z0-9]+)*\.sui$/i;
 
         let currentWallet = null;
@@ -439,9 +435,6 @@
                 .replace(/'/g, '&#39;');
         }
 
-        function normalizeWalletKey(value) {
-            return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        }
 
 
         function makeWalletIcon(label, bg, fg = '#ffffff') {
@@ -972,7 +965,6 @@
                 updateWalletConnectionControls(true);
                 document.getElementById('walletType').textContent = `zkLogin (${currentWallet.provider})`;
 
-                setAccountsList([]);
 
                 // Store zkLogin proof in session storage
                 try {
@@ -1091,7 +1083,7 @@
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
                 document.getElementById('walletType').textContent = `zkLogin (${currentWallet.provider})`;
-                setAccountsList([]);
+
 
                 logOutput('🔐 zkLogin session restored from storage');
                 logOutput(`🎉 Reconnected as ${sessionData.address}`);
@@ -1562,81 +1554,8 @@
             });
         }
 
-        // Populate and show account dropdown for multi-account wallets
-        function setAccountsList(accounts) {
-            try {
-                window.currentWalletAccounts = Array.isArray(accounts) ? accounts : [];
-                const selWrap = document.getElementById('accountSelector');
-                const sel = document.getElementById('accountSelect');
-                if (!selWrap || !sel) return;
-                sel.innerHTML = '';
-                if (window.currentWalletAccounts.length > 0) {
-                    for (const acc of window.currentWalletAccounts) {
-                        const addr = acc && acc.address ? acc.address : String(acc || '');
-                        const opt = document.createElement('option');
-                        opt.value = addr;
-                        opt.textContent = addr;
-                        sel.appendChild(opt);
-                    }
-                    // Preselect current address if present
-                    const current = currentWallet && currentWallet.address;
-                    if (current) {
-                        sel.value = current;
-                    }
-                }
-                selWrap.style.display = window.currentWalletAccounts.length > 1 ? 'flex' : 'none';
-            } catch (e) {
-                // non-fatal
-            }
-        }
 
-        async function refreshWalletAccounts() {
-            try {
-                if (!connectedWalletStandard) {
-                    logOutput('No wallet connected', true);
-                    return;
-                }
-                const w = connectedWalletStandard;
-                let accounts = [];
-                if (w.features && w.features['standard:connect']) {
-                    const f = w.features['standard:connect'];
-                    if (typeof f.getAccounts === 'function') accounts = await f.getAccounts();
-                    else if (f.accounts) accounts = f.accounts;
-                } else if (w.features && w.features['sui:connect']) {
-                    const f = w.features['sui:connect'];
-                    if (typeof f.getAccounts === 'function') accounts = await f.getAccounts();
-                    else if (f.accounts) accounts = f.accounts;
-                } else if (w.accounts) {
-                    accounts = w.accounts;
-                }
-                setAccountsList(accounts);
-                logOutput(`Accounts refreshed (${accounts.length} found).`);
-            } catch (e) {
-                logOutput('Error refreshing accounts: ' + e.message, true);
-            }
-        }
 
-        async function useSelectedAccount() {
-            try {
-                const sel = document.getElementById('accountSelect');
-                if (!sel || !sel.value) {
-                    logOutput('No account selected', true);
-                    return;
-                }
-                const nextAddr = sel.value;
-                if (!connectedWalletStandard) {
-                    logOutput('No wallet connected', true);
-                    return;
-                }
-                // Update current account for signing and UI
-                currentWallet = { address: nextAddr, type: 'wallet_standard', wallet: connectedWalletStandard };
-                showCurrentWalletAddress(nextAddr);
-                await getWalletBalance();
-                logOutput(`Using selected account: ${nextAddr}`);
-            } catch (e) {
-                logOutput('Error selecting account: ' + e.message, true);
-            }
-        }
         // Derive member count from Move object fields; fall back to at least 1 (creator)
         function getMemberCountFromWalletFields(fields) {
             try {
@@ -2245,7 +2164,6 @@
                     };
                     connectedWalletStandard = wallet;
                     attachWalletEvents(wallet);
-                    setAccountsList(accounts);
 
                     showCurrentWalletAddress(account.address);
                     document.getElementById('walletInfo').style.display = 'block';
@@ -2271,42 +2189,6 @@
             }
         }
 
-        async function switchWalletAccount() {
-            try {
-                if (!connectedWalletStandard) {
-                    logOutput('No wallet connected', true);
-                    return;
-                }
-                const wallet = connectedWalletStandard;
-                let feature = null;
-                if (wallet.features && wallet.features['standard:connect']) feature = wallet.features['standard:connect'];
-                else if (wallet.features && wallet.features['sui:connect']) feature = wallet.features['sui:connect'];
-                if (feature && typeof feature.connect === 'function') {
-                    try { await feature.disconnect?.(); } catch (_) {}
-                    const res = await feature.connect({ silent: false });
-                    let accounts = [];
-                    if (res && res.accounts) accounts = res.accounts;
-                    else if (typeof feature.getAccounts === 'function') accounts = await feature.getAccounts();
-                    else if (wallet.accounts) accounts = wallet.accounts;
-                    if (accounts && accounts.length) {
-                        const account = accounts[0];
-                        currentWallet = { address: account.address, type: 'wallet_standard', wallet };
-                        connectedWalletStandard = wallet;
-                        showCurrentWalletAddress(account.address);
-                        document.getElementById('walletInfo').style.display = 'block';
-                        updateWalletConnectionControls(true);
-                        await getWalletBalance();
-                        logOutput(`Switched to account: ${account.address}`);
-                    } else {
-                        logOutput('No accounts returned after switch', true);
-                    }
-                } else {
-                    logOutput('Wallet does not support programmatic account switching. Change the active account in the wallet UI, then click Refresh Balance.', true);
-                }
-            } catch (e) {
-                logOutput('Error switching account: ' + e.message, true);
-            }
-        }
 
         async function connectViaWindowSui() {
             if (!window.sui) throw new Error('window.sui not detected');
@@ -2331,7 +2213,6 @@
                 const account = accounts[0];
                 currentWallet = { address: account.address, type: 'wallet_standard', wallet: window.sui };
                 connectedWalletStandard = window.sui;
-                setAccountsList(accounts);
                 showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
@@ -2407,7 +2288,6 @@
                 
                 currentWallet = { address: account.address, type: 'wallet_standard', wallet: phantomSui };
                 connectedWalletStandard = phantomSui;
-                setAccountsList(accounts);
                 
                 showCurrentWalletAddress(account.address);
                 document.getElementById('walletInfo').style.display = 'block';
@@ -2452,7 +2332,6 @@
                 
                 currentWallet = null;
                 connectedWalletStandard = null;
-                try { setAccountsList([]); } catch (_) {}
 
                 // Clear zkLogin session storage
                 try {
@@ -2478,7 +2357,6 @@
                         try {
                             if (e && e.accounts && e.accounts.length) {
                                 const account = e.accounts[0];
-                                setAccountsList(e.accounts);
                                 currentWallet = { address: account.address, type: 'wallet_standard', wallet };
                                 connectedWalletStandard = wallet;
                                 showCurrentWalletAddress(account.address);
@@ -3308,10 +3186,7 @@
         window.clearOutput = clearOutput;
         window.connectWalletStandard = connectWalletStandard;
         window.disconnectWallet = disconnectWallet;
-        window.refreshWalletAccounts = refreshWalletAccounts;
-        window.useSelectedAccount = useSelectedAccount;
         window.connectViewOnly = connectViewOnly;
-        window.manualConnect = connectViewOnly;
         window.setEnokiApiKey = function(apiKey) {
             const value = setEnokiApiKey(apiKey);
             logOutput(`Enoki API key ${value ? 'set' : 'cleared'}.`);
@@ -3331,7 +3206,6 @@
         window.createProposal = createProposal;
         window.approveProposal = approveProposal;
         window.depositToWallet = depositToWallet;
-        window.switchWalletAccount = switchWalletAccount;
         window.clearZkLoginSession = function() {
             try {
                 sessionStorage.removeItem('smartwallet:zkLogin');
@@ -3483,12 +3357,6 @@
                     <span id="currentBalance" class="balance-value">Loading...</span>
                     <button type="button" class="balance-refresh" onclick="getWalletBalance()" aria-label="Refresh balance">Refresh</button>
                 </p>
-                <div id="accountSelector" class="form-group" style="display: none; align-items: center; gap: 6px;">
-                    <label for="accountSelect" style="font-size: 12px; color: #cfe4f7;">Account:</label>
-                    <select id="accountSelect" style="font-size: 12px; padding: 6px; min-width: 260px;"></select>
-                    <button onclick="useSelectedAccount()" style="font-size: 12px; padding: 6px 10px;">Use Account</button>
-                    <button onclick="refreshWalletAccounts()" style="font-size: 12px; padding: 6px 10px;">Refresh</button>
-                </div>
                 <button onclick="disconnectWallet()" style="background: #dc3545;">Disconnect</button>
             </div>
         </div>
