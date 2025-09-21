@@ -95,7 +95,7 @@
         /* Critical elements - optimized */
         body,.container,h1{visibility:visible!important}
         .section h3{margin-top:0;color:#c3d5e8;text-shadow:0 1px 2px rgba(0,0,0,.3)}
-        :root{--sw-favicon-url:initial}
+        :root{--sw-favicon-url:initial;--sw-modal-surface:linear-gradient(145deg,#1e3a52 0%,#2d4a66 100%)}
         .sw-icon{display:inline-block;width:1em;height:1em;background-image:var(--sw-favicon-url);background-size:contain;background-repeat:no-repeat;vertical-align:-.15em}
         button{background:linear-gradient(145deg,#458BBD,#5A9BD4);color:#f4f1ef;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;margin:5px;font-size:14px;transition:all .3s ease;box-shadow:0 3px 8px rgba(0,0,0,.3);border:1px solid rgba(90,155,212,.3)}
         button:hover{background:linear-gradient(145deg,#5A9BD4,#6BB6FF);transform:translateY(-1px);box-shadow:0 6px 12px rgba(0,0,0,.4)}
@@ -155,11 +155,11 @@
         /* Modal styles */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; }
         .modal-overlay.visible { display: flex; }
-        .modal { width: min(600px, 92vw); max-height: 80vh; overflow: hidden; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(69,139,189,.4); background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); }
+        .modal { width: min(600px, 92vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(69,139,189,.4); background: var(--sw-modal-surface); }
         .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(69,139,189,.3); }
         .modal-title { margin: 0; font-size: 16px; color: #cfe4f7; font-weight: 600; }
         .modal-close { background: transparent; border: none; color: #cfe4f7; font-size: 18px; cursor: pointer; padding: 6px 8px; }
-        .modal-body { padding: 12px 16px; max-height: calc(80vh - 56px); overflow-y: auto; }
+        .modal-body { flex: 1; min-height: 0; padding: 12px 16px 20px; overflow-y: auto; overflow-x: visible; background: linear-gradient(155deg, rgba(30,58,82,.95) 0%, rgba(41,70,96,.98) 100%); }
         .wallet-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 8px; padding: 12px; background: rgba(69,139,189,.08); margin: 10px 0; width: 100%; cursor: pointer; text-align: left; color: inherit; font: inherit; transition: border-color .2s ease, background .2s ease, transform .1s ease; position: relative; }
         .wallet-card::after { content: '→'; font-size: 16px; color: #8fb9df; margin-left: auto; display: inline-flex; align-items: center; }
         .wallet-card:hover { border-color: rgba(90,155,212,.6); background: rgba(69,139,189,.15); transform: translateY(-1px); }
@@ -173,7 +173,7 @@
         /* zkLogin provider selection styles */
         .zklogin-providers { position: relative; display: inline-block; width: 100%; }
         .zklogin-providers .wallet-card { margin: 0; }
-        .zklogin-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; }
+        .zklogin-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: var(--sw-modal-surface); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; }
         .zklogin-dropdown.visible { display: block; }
         .zklogin-provider { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease; }
         .zklogin-provider:hover { background: rgba(69,139,189,.15); }
@@ -182,9 +182,9 @@
         .zklogin-provider:only-child { border-radius: 8px; }
 
         /* Traditional wallet dropdown styles */
-        .traditional-providers { position: relative; display: inline-block; width: 100%; }
+        .traditional-providers { position: relative; display: block; width: 100%; }
         .traditional-providers .wallet-card { margin: 0; }
-        .traditional-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; max-width: 100%; overflow: hidden; }
+        .traditional-dropdown { position: relative; background: var(--sw-modal-surface); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1; display: none; margin-top: 8px; max-width: 100%; overflow: hidden; }
         .traditional-dropdown.visible { display: block; }
         .traditional-provider { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease; }
         .traditional-provider:hover { background: rgba(69,139,189,.15); }
@@ -198,6 +198,12 @@
         .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
         .form-actions button { padding: 6px 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: transparent; color: #cfe4f7; cursor: pointer; font-size: 11px; }
         .form-actions .create-btn { background: #ff6b35; border-color: #ff6b35; color: white; font-weight: 600; }
+
+        /* Create wallet dropdown styles */
+        .create-wallet-container { position: relative; display: inline-block; width: 100%; }
+        .create-wallet-dropdown { position: relative; background: var(--sw-modal-surface); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1; display: none; margin-top: 8px; max-height: none; overflow: visible; }
+        .create-wallet-dropdown.visible { display: block; }
+        .create-wallet-dropdown .traditional-provider-form { min-height: 210px; }
 
         /* Wallet item styles */
         .wallet-item:hover { background: rgba(69,139,189,.15); }
@@ -1152,9 +1158,9 @@
                 },
                 {
                     type: 'custom',
-                    action: 'traditionalWallet',
-                    name: 'Traditional Wallet',
-                    icon: makeWalletIcon('TW', '#ff6b35')
+                    action: 'browserWallet',
+                    name: 'Browser Wallet',
+                    icon: makeWalletIcon('BW', '#5a7cff')
                 }
             ];
 
@@ -1596,63 +1602,84 @@
             // The form calls handleCreateWalletForm directly
         }
 
-        async function handleCreateWalletForm(walletIndex) {
-            const nameInput = document.getElementById('createWalletName');
-            const passwordInput = document.getElementById('createWalletPassword');
-            const confirmInput = document.getElementById('createWalletConfirmPassword');
-
-            const name = nameInput.value.trim();
-            const password = passwordInput.value;
-            const confirmPassword = confirmInput.value;
-
-            // Validate inputs
-            if (!name) {
-                alert('Please enter a wallet name');
-                return;
+        async function createOrImportWallet({ name, rawPrivateKey, password, confirmPassword }) {
+            const trimmedName = (name || '').trim();
+            if (!trimmedName) {
+                throw new Error('Please enter a wallet name');
             }
 
-            if (password.length < 8) {
-                alert('Password must be at least 8 characters long');
-                return;
+            if (!password || password.length < 8) {
+                throw new Error('Password must be at least 8 characters long');
             }
 
             if (password !== confirmPassword) {
-                alert('Passwords do not match');
-                return;
+                throw new Error('Passwords do not match');
             }
 
-            // Check if wallet name already exists
             const existingWallets = getStoredWallets();
-            if (existingWallets.some(w => w.name === name)) {
-                alert('A wallet with this name already exists');
+            if (existingWallets.some(w => w.name === trimmedName)) {
+                throw new Error('A wallet with this name already exists');
+            }
+
+            await ensureSdkReady();
+
+            const normalizedPrivateKey = (rawPrivateKey || '').trim().replace(/\s+/g, '');
+            const { Ed25519Keypair } = window.SuiSDK.Sui;
+            let keypair;
+            let secretForStorage;
+            let actionLabel;
+
+            if (normalizedPrivateKey) {
+                logOutput('Importing wallet...');
+                try {
+                    keypair = Ed25519Keypair.fromSecretKey(normalizedPrivateKey);
+                } catch (error) {
+                    throw new Error('Invalid private key format. Please verify and try again.');
+                }
+                secretForStorage = normalizedPrivateKey;
+                actionLabel = 'imported';
+            } else {
+                logOutput('Creating new wallet...');
+                keypair = Ed25519Keypair.generate();
+                secretForStorage = keypair.getSecretKey();
+                actionLabel = 'created';
+            }
+
+            const address = keypair.toSuiAddress();
+            const encryptedPrivateKey = await encryptPrivateKey(secretForStorage, password);
+
+            saveWallet(trimmedName, encryptedPrivateKey, address);
+
+            currentWallet = { address, keypair, type: 'traditional', name: trimmedName };
+            showCurrentWalletAddress(address);
+            document.getElementById('walletInfo').style.display = 'block';
+            updateWalletConnectionControls(true);
+
+            logOutput(`Wallet "${trimmedName}" ${actionLabel} successfully!`);
+            logOutput(`Address: ${address}`);
+            await getWalletBalance();
+
+            return { actionLabel, address };
+        }
+
+        async function handleCreateWalletForm(walletIndex) {
+            const nameInput = document.getElementById('createWalletName');
+            const privateKeyInput = document.getElementById('createWalletPrivateKey');
+            const passwordInput = document.getElementById('createWalletPassword');
+            const confirmInput = document.getElementById('createWalletConfirmPassword');
+
+            if (!nameInput || !passwordInput || !confirmInput) {
+                alert('Form inputs not found');
                 return;
             }
 
             try {
-                await ensureSdkReady();
-                logOutput('Creating new wallet...');
-
-                // Generate keypair
-                const { Ed25519Keypair } = window.SuiSDK.Sui;
-                const keypair = Ed25519Keypair.generate();
-                const address = keypair.toSuiAddress();
-                const privateKey = keypair.getSecretKey();
-
-                // Encrypt private key
-                const encryptedPrivateKey = await encryptPrivateKey(privateKey, password);
-
-                // Save wallet
-                saveWallet(name, encryptedPrivateKey, address);
-
-                // Set as current wallet
-                currentWallet = { address, keypair, type: 'traditional', name };
-                showCurrentWalletAddress(address);
-                document.getElementById('walletInfo').style.display = 'block';
-                updateWalletConnectionControls(true);
-
-                logOutput(`Wallet "${name}" created successfully!`);
-                logOutput(`Address: ${address}`);
-                await getWalletBalance();
+                await createOrImportWallet({
+                    name: nameInput.value,
+                    rawPrivateKey: privateKeyInput ? privateKeyInput.value : '',
+                    password: passwordInput.value,
+                    confirmPassword: confirmInput.value
+                });
 
                 // Close the dropdown
                 const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
@@ -1663,8 +1690,8 @@
                 // Close the wallet modal
                 closeWalletModal();
             } catch (error) {
-                logOutput('Error creating wallet: ' + error.message, true);
-                alert('Error creating wallet: ' + error.message);
+                logOutput('Error creating or importing wallet: ' + error.message, true);
+                alert('Error creating or importing wallet: ' + error.message);
             }
         }
 
@@ -1992,8 +2019,8 @@
                                 '    </button>\n' +
                                 '  </div>\n' +
                                 '</div>';
-                    } else if (e.type === 'custom' && e.action === 'traditionalWallet') {
-                        // Special handling for traditional wallet to show create/unlock options
+                    } else if (e.type === 'custom' && e.action === 'browserWallet') {
+                        // Special handling for browser wallet to show create/unlock options
                         html += '\n<div class="traditional-providers">\n' +
                                 '  <button type="button" class="wallet-card" onclick="toggleTraditionalWalletOptions(event, ' + i + ')">\n' +
                                 '    <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
@@ -2062,13 +2089,8 @@
             const storedWallets = getStoredWallets();
             console.log('Found stored wallets:', storedWallets.length, storedWallets);
 
-            if (storedWallets.length > 0) {
-                // Show existing wallets for unlocking
-                showExistingWallets(dropdown, storedWallets, walletIndex);
-            } else {
-                // Show create wallet form
-                showCreateWalletForm(dropdown, walletIndex);
-            }
+            // Always show the same dropdown structure
+            showExistingWallets(dropdown, storedWallets, walletIndex);
 
             // Make sure the dropdown is visible
             dropdown.classList.add('visible');
@@ -2079,11 +2101,12 @@
         function showExistingWallets(dropdown, storedWallets, walletIndex) {
             console.log('showExistingWallets called with dropdown:', dropdown, 'wallets:', storedWallets);
 
+            // Generate wallet list (empty if no wallets)
             const walletOptions = storedWallets.map(wallet => `
-                <div class="wallet-item" style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease;">
-                    <button type="button" class="wallet-unlock-btn" onclick="unlockSpecificWallet('${wallet.name}'); closeAllTraditionalDropdowns();" style="display: flex; align-items: center; gap: 8px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; flex: 1; text-align: left; max-width: calc(100% - 40px);">
+                <div class="wallet-item" style="display: flex; align-items: center; gap: 8px; padding: 2px 12px; margin: 0; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease;">
+                    <button type="button" class="wallet-unlock-btn" onclick="unlockSpecificWallet('${wallet.name}'); closeAllTraditionalDropdowns();" style="display: flex; align-items: center; gap: 8px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; flex: 1; text-align: left; max-width: calc(100%);">
                         <div class="traditional-provider-icon" style="background: #2e7d32; width: 20px; height: 20px; font-size: 9px; flex-shrink: 0;">UW</div>
-                        <span class="traditional-provider-name" style="font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${wallet.name}</span>
+                        <span class="traditional-provider-name" style="font-size: 18px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${wallet.name}</span>
                     </button>
                     <button type="button" class="wallet-delete-btn" onclick="deleteWalletAndRefresh('${wallet.name}', ${walletIndex})" style="border: none; background: transparent; color: #ff4444; cursor: pointer; padding: 4px; flex-shrink: 0; margin-left: 8px; margin-right: 24px;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
@@ -2096,17 +2119,48 @@
             console.log('Generated wallet options HTML:', walletOptions);
 
             dropdown.innerHTML = `
-                <div class="existing-wallets-header" style="padding: 6px 12px; font-size: 11px; color: #cfe4f7; font-weight: 600; border-bottom: 1px solid rgba(69,139,189,.3); margin-bottom: 6px;">
-                    Select wallet to unlock:
-                </div>
-                <div class="wallet-list" style="max-height: 120px; overflow-y: auto; width: 100%;">
-                    ${walletOptions}
-                </div>
-                <div style="padding: 6px 10px; border-top: 1px solid rgba(69,139,189,.3); margin-top: 6px;">
-                    <button type="button" class="traditional-provider" onclick="showCreateWalletForm(this.closest('.traditional-dropdown'), ${walletIndex});" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.08); color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; font-size: 13px;">
-                        <div class="traditional-provider-icon" style="background: #ff6b35; width: 20px; height: 20px; font-size: 9px; flex-shrink: 0;">TW</div>
-                        <span class="traditional-provider-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Create New Wallet</span>
-                    </button>
+                ${storedWallets.length > 0 ? `
+                    <div class="existing-wallets-header" style="padding: 4px 12px; font-size: 16px; color: #cfe4f7; font-weight: 600; border-bottom: 1px solid rgba(69,139,189,.3); margin-bottom: 2px;">
+                        Select wallet to unlock:
+                    </div>
+                    <div class="wallet-list" style="max-height: 120px; overflow-y: auto; width: 100%;">
+                        ${walletOptions}
+                    </div>
+                    <div style="padding: 4px 10px; border-top: 1px solid rgba(69,139,189,.3); margin-top: 2px;">
+                ` : `
+                    <div style="padding: 8px 12px;">
+                `}
+                    <div class="create-wallet-container">
+                        <button type="button" class="traditional-provider" onclick="toggleCreateWalletDropdown(${walletIndex});" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.08); color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; font-size: 13px;">
+                            <div class="traditional-provider-icon" style="background: #5a7cff; width: 20px; height: 20px; font-size: 9px; flex-shrink: 0;">CI</div>
+                            <span class="traditional-provider-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Create or Import Wallet</span>
+                        </button>
+                        <div class="create-wallet-dropdown" id="createWalletDropdown${walletIndex}">
+                            <div class="traditional-provider-form" style="padding: 8px 12px;">
+                                <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
+                                    <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Wallet Name:</label>
+                                    <input type="text" id="createWalletName${walletIndex}" placeholder="Enter wallet name" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                                </div>
+                                <div class="form-row" style="display: flex; flex-direction: column; align-items: stretch; margin-bottom: 8px; gap: 6px;">
+                                    <label style="font-size: 10px; color: #cfe4f7; font-weight: 600;">Private Key (optional):</label>
+                                    <textarea id="createWalletPrivateKey${walletIndex}" placeholder="Leave blank to generate a new key" style="font-size: 10px; padding: 6px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7; min-height: 60px; resize: vertical;"></textarea>
+                                    <span style="font-size: 9px; color: rgba(207,228,247,0.7);">Paste a Base64 private key to import an existing wallet.</span>
+                                </div>
+                                <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
+                                    <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Password:</label>
+                                    <input type="password" id="createWalletPassword${walletIndex}" placeholder="Min 8 characters" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                                </div>
+                                <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
+                                    <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Confirm:</label>
+                                    <input type="password" id="createWalletConfirmPassword${walletIndex}" placeholder="Confirm password" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                                </div>
+                                <div class="form-actions" style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+                                    <button type="button" onclick="closeCreateWalletDropdown(${walletIndex});" style="font-size: 10px; padding: 4px 8px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: transparent; color: #cfe4f7; cursor: pointer;">Cancel</button>
+                                    <button type="button" onclick="handleCreateWalletFromDropdown(${walletIndex})" class="create-btn" style="font-size: 10px; padding: 4px 8px; border: none; border-radius: 4px; background: #5a7cff; color: white; cursor: pointer; font-weight: 600;">Continue</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             `;
             console.log('Set dropdown innerHTML with wallet options');
@@ -2116,11 +2170,29 @@
         function showCreateWalletForm(dropdown, walletIndex) {
             console.log('showCreateWalletForm called with dropdown:', dropdown, 'walletIndex:', walletIndex);
 
+            if (!dropdown) {
+                console.error('No dropdown element provided to showCreateWalletForm');
+                return;
+            }
+
+            // Clear dropdown completely first and force a reflow
+            dropdown.innerHTML = '';
+            dropdown.className = 'traditional-dropdown visible';
+            console.log('Dropdown cleared, setting new form HTML...');
+
+            // Force DOM reflow before setting new content
+            dropdown.offsetHeight;
+
             dropdown.innerHTML = `
                 <div class="traditional-provider-form" id="createWalletForm" style="padding: 8px 12px; max-height: none;">
                     <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
                         <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Wallet Name:</label>
                         <input type="text" id="createWalletName" placeholder="Enter wallet name" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                    </div>
+                    <div class="form-row" style="display: flex; flex-direction: column; align-items: stretch; margin-bottom: 8px; gap: 6px;">
+                        <label style="font-size: 10px; color: #cfe4f7; font-weight: 600;">Private Key (optional):</label>
+                        <textarea id="createWalletPrivateKey" placeholder="Leave blank to generate a new key" style="font-size: 10px; padding: 6px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7; min-height: 60px; resize: vertical;"></textarea>
+                        <span style="font-size: 9px; color: rgba(207,228,247,0.7);">Paste a Base64 private key to import an existing wallet.</span>
                     </div>
                     <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
                         <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Password:</label>
@@ -2132,14 +2204,85 @@
                     </div>
                     <div class="form-actions" style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
                         <button type="button" onclick="showExistingWallets(this.closest('.traditional-dropdown'), getStoredWallets(), ${walletIndex});" style="font-size: 10px; padding: 4px 8px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: transparent; color: #cfe4f7; cursor: pointer;">Back</button>
-                        <button type="button" onclick="handleCreateWalletForm(${walletIndex})" class="create-btn" style="font-size: 10px; padding: 4px 8px; border: none; border-radius: 4px; background: #ff6b35; color: white; cursor: pointer; font-weight: 600;">Create</button>
+                        <button type="button" onclick="handleCreateWalletForm(${walletIndex})" class="create-btn" style="font-size: 10px; padding: 4px 8px; border: none; border-radius: 4px; background: #5a7cff; color: white; cursor: pointer; font-weight: 600;">Continue</button>
                     </div>
                 </div>
             `;
+
+            console.log('Create wallet form HTML set successfully');
+            console.log('Final dropdown content:', dropdown.innerHTML);
         }
 
         function closeAllTraditionalDropdowns() {
             document.querySelectorAll('.traditional-dropdown').forEach(d => d.classList.remove('visible'));
+            document.querySelectorAll('.create-wallet-dropdown').forEach(d => d.classList.remove('visible'));
+        }
+
+        function toggleCreateWalletDropdown(walletIndex) {
+            const dropdown = document.getElementById('createWalletDropdown' + walletIndex);
+            if (!dropdown) return;
+
+            // Close other create wallet dropdowns
+            document.querySelectorAll('.create-wallet-dropdown').forEach(d => {
+                if (d !== dropdown) d.classList.remove('visible');
+            });
+
+            // Toggle current dropdown
+            dropdown.classList.toggle('visible');
+
+            // If opening, focus the first input
+            if (dropdown.classList.contains('visible')) {
+                setTimeout(() => {
+                    const nameInput = document.getElementById('createWalletName' + walletIndex);
+                    if (nameInput) nameInput.focus();
+                }, 100);
+            }
+
+            // Close dropdown when clicking outside
+            const closeHandler = (e) => {
+                if (!dropdown.contains(e.target) && !e.target.closest('.create-wallet-container')) {
+                    dropdown.classList.remove('visible');
+                    document.removeEventListener('click', closeHandler);
+                }
+            };
+
+            if (dropdown.classList.contains('visible')) {
+                setTimeout(() => document.addEventListener('click', closeHandler), 0);
+            }
+        }
+
+        function closeCreateWalletDropdown(walletIndex) {
+            const dropdown = document.getElementById('createWalletDropdown' + walletIndex);
+            if (dropdown) {
+                dropdown.classList.remove('visible');
+            }
+        }
+
+        async function handleCreateWalletFromDropdown(walletIndex) {
+            const nameInput = document.getElementById('createWalletName' + walletIndex);
+            const privateKeyInput = document.getElementById('createWalletPrivateKey' + walletIndex);
+            const passwordInput = document.getElementById('createWalletPassword' + walletIndex);
+            const confirmInput = document.getElementById('createWalletConfirmPassword' + walletIndex);
+
+            if (!nameInput || !passwordInput || !confirmInput) {
+                alert('Form inputs not found');
+                return;
+            }
+
+            try {
+                await createOrImportWallet({
+                    name: nameInput.value,
+                    rawPrivateKey: privateKeyInput ? privateKeyInput.value : '',
+                    password: passwordInput.value,
+                    confirmPassword: confirmInput.value
+                });
+
+                closeCreateWalletDropdown(walletIndex);
+                closeWalletModal();
+            } catch (error) {
+                logOutput('Error creating or importing wallet: ' + error.message, true);
+                alert('Error creating or importing wallet: ' + error.message);
+            }
         }
 
         async function showImportWalletModal() {
@@ -2226,6 +2369,9 @@
         window.showCreateWalletForm = showCreateWalletForm;
         window.unlockSpecificWallet = unlockSpecificWallet;
         window.deleteWalletAndRefresh = deleteWalletAndRefresh;
+        window.toggleCreateWalletDropdown = toggleCreateWalletDropdown;
+        window.closeCreateWalletDropdown = closeCreateWalletDropdown;
+        window.handleCreateWalletFromDropdown = handleCreateWalletFromDropdown;
 
         window.connectWalletByIndex = async function(i) {
             try {
