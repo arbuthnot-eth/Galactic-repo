@@ -184,7 +184,7 @@
         /* Traditional wallet dropdown styles */
         .traditional-providers { position: relative; display: inline-block; width: 100%; }
         .traditional-providers .wallet-card { margin: 0; }
-        .traditional-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; }
+        .traditional-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; max-width: 100%; overflow: hidden; }
         .traditional-dropdown.visible { display: block; }
         .traditional-provider { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease; }
         .traditional-provider:hover { background: rgba(69,139,189,.15); }
@@ -194,14 +194,19 @@
         .traditional-provider-icon { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 10px; }
 
         /* Traditional wallet form styles */
-        .traditional-provider-form { padding: 12px; }
-        .form-field { margin-bottom: 12px; }
-        .form-field label { display: block; margin-bottom: 4px; color: #cfe4f7; font-weight: 600; font-size: 12px; }
-        .form-field input { width: 100%; padding: 6px 8px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7; font-size: 12px; }
-        .form-field input:focus { outline: none; border-color: rgba(90,155,212,.6); }
+        .form-row input:focus { outline: none; border-color: rgba(90,155,212,.6); }
         .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
         .form-actions button { padding: 6px 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: transparent; color: #cfe4f7; cursor: pointer; font-size: 11px; }
         .form-actions .create-btn { background: #ff6b35; border-color: #ff6b35; color: white; font-weight: 600; }
+
+        /* Wallet item styles */
+        .wallet-item:hover { background: rgba(69,139,189,.15); }
+        .wallet-delete-btn { opacity: 0.7; transition: all 0.2s ease; }
+        .wallet-delete-btn:hover { opacity: 1; color: #ff6666; transform: scale(1.1); }
+        .wallet-list { max-height: 100px; overflow-y: auto; overflow-x: hidden; width: 100%; }
+        .wallet-list::-webkit-scrollbar { width: 4px; }
+        .wallet-list::-webkit-scrollbar-track { background: rgba(69,139,189,.1); }
+        .wallet-list::-webkit-scrollbar-thumb { background: rgba(69,139,189,.3); border-radius: 2px; }
         .zklogin-provider-icon { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
         .zklogin-provider-icon svg { width: 100%; height: 100%; }
         .zklogin-provider-name { font-weight: 500; }
@@ -463,7 +468,45 @@
         }
 
         function deleteWallet(name) {
-            localStorage.removeItem(`galactic:wallet:${name}`);
+            if (confirm(`Are you sure you want to delete the wallet "${name}"? This action cannot be undone.`)) {
+                localStorage.removeItem(`galactic:wallet:${name}`);
+                logOutput(`Wallet "${name}" deleted successfully`);
+                return true;
+            }
+            return false;
+        }
+
+        async function deleteWalletAndRefresh(walletName, walletIndex) {
+            const success = deleteWallet(walletName);
+            if (success) {
+                // Check if any wallets remain
+                const remainingWallets = getStoredWallets();
+
+                if (remainingWallets.length === 0) {
+                    // No wallets left, show create form
+                    const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
+                    if (dropdown && dropdown.classList.contains('visible')) {
+                        showCreateWalletForm(dropdown, walletIndex);
+                    }
+                } else {
+                    // Refresh the dropdown to show updated wallet list
+                    const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
+                    if (dropdown && dropdown.classList.contains('visible')) {
+                        showTraditionalWalletOptions(dropdown, walletIndex);
+                    }
+                }
+            }
+        }
+
+        function refreshTraditionalWalletDropdown() {
+            // Find all traditional wallet dropdowns and refresh them
+            const dropdowns = document.querySelectorAll('.traditional-dropdown');
+            dropdowns.forEach(dropdown => {
+                if (dropdown.classList.contains('visible')) {
+                    const walletIndex = parseInt(dropdown.id.replace('traditionalDropdown', ''));
+                    showTraditionalWalletOptions(dropdown, walletIndex);
+                }
+            });
         }
 
 
@@ -1587,6 +1630,9 @@
                 if (dropdown) {
                     dropdown.classList.remove('visible');
                 }
+
+                // Close the wallet modal
+                closeWalletModal();
             } catch (error) {
                 logOutput('Error creating wallet: ' + error.message, true);
                 alert('Error creating wallet: ' + error.message);
@@ -1926,26 +1972,7 @@
                                 '      <div class="wallet-card-name">' + safeName + '</div>\n' +
                                 '    </div>\n' +
                                 '  </button>\n' +
-                                '  <div class="traditional-dropdown" id="traditionalDropdown' + i + '">\n' +
-                                '    <div class="traditional-provider-form" id="createWalletForm">\n' +
-                                '      <div class="form-field">\n' +
-                                '        <label>Wallet Name:</label>\n' +
-                                '        <input type="text" id="createWalletName" placeholder="Enter wallet name" />\n' +
-                                '      </div>\n' +
-                                '      <div class="form-field">\n' +
-                                '        <label>Password:</label>\n' +
-                                '        <input type="password" id="createWalletPassword" placeholder="Min 8 characters" />\n' +
-                                '      </div>\n' +
-                                '      <div class="form-field">\n' +
-                                '        <label>Confirm Password:</label>\n' +
-                                '        <input type="password" id="createWalletConfirmPassword" placeholder="Confirm password" />\n' +
-                                '      </div>\n' +
-                                '      <div class="form-actions">\n' +
-                                '        <button type="button" onclick="unlockWallet(); closeAllTraditionalDropdowns();">Unlock Existing</button>\n' +
-                                '        <button type="button" onclick="handleCreateWalletForm(' + i + ')" class="create-btn">Create Wallet</button>\n' +
-                                '      </div>\n' +
-                                '    </div>\n' +
-                                '  </div>\n' +
+                                '  <div class="traditional-dropdown" id="traditionalDropdown' + i + '"></div>\n' +
                                 '</div>';
                     } else {
                         // Add passkey-icon class for passkey entries to handle scaling
@@ -1975,17 +2002,111 @@
 
         function toggleTraditionalWalletOptions(event, walletIndex) {
             event.stopPropagation();
+
+            console.log('toggleTraditionalWalletOptions called with walletIndex:', walletIndex);
+
             const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
-            if (!dropdown) return;
+            console.log('Dropdown element found:', dropdown);
+
+            if (!dropdown) {
+                console.error('Dropdown element not found for walletIndex:', walletIndex);
+                return;
+            }
 
             // Close any other open dropdowns
             const allDropdowns = document.querySelectorAll('.traditional-dropdown');
+            console.log('Found dropdowns:', allDropdowns.length);
+
             allDropdowns.forEach(d => {
                 if (d !== dropdown) d.classList.remove('visible');
             });
 
-            // Toggle current dropdown
-            dropdown.classList.toggle('visible');
+            // Show the dropdown content based on whether wallets exist
+            showTraditionalWalletOptions(dropdown, walletIndex);
+        }
+
+        function showTraditionalWalletOptions(dropdown, walletIndex) {
+            console.log('showTraditionalWalletOptions called with dropdown:', dropdown, 'walletIndex:', walletIndex);
+            console.log('Dropdown classes before:', dropdown.className);
+
+            // Always get fresh wallet list when showing options
+            const storedWallets = getStoredWallets();
+            console.log('Found stored wallets:', storedWallets.length, storedWallets);
+
+            if (storedWallets.length > 0) {
+                // Show existing wallets for unlocking
+                showExistingWallets(dropdown, storedWallets, walletIndex);
+            } else {
+                // Show create wallet form
+                showCreateWalletForm(dropdown, walletIndex);
+            }
+
+            // Make sure the dropdown is visible
+            dropdown.classList.add('visible');
+            console.log('Dropdown classes after:', dropdown.className);
+            console.log('Dropdown display style:', getComputedStyle(dropdown).display);
+        }
+
+        function showExistingWallets(dropdown, storedWallets, walletIndex) {
+            console.log('showExistingWallets called with dropdown:', dropdown, 'wallets:', storedWallets);
+
+            const walletOptions = storedWallets.map(wallet => `
+                <div class="wallet-item" style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease;">
+                    <button type="button" class="wallet-unlock-btn" onclick="unlockSpecificWallet('${wallet.name}'); closeAllTraditionalDropdowns();" style="display: flex; align-items: center; gap: 8px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; flex: 1; text-align: left; max-width: calc(100% - 40px);">
+                        <div class="traditional-provider-icon" style="background: #2e7d32; width: 20px; height: 20px; font-size: 9px; flex-shrink: 0;">UW</div>
+                        <span class="traditional-provider-name" style="font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${wallet.name}</span>
+                    </button>
+                    <button type="button" class="wallet-delete-btn" onclick="deleteWalletAndRefresh('${wallet.name}', ${walletIndex})" style="border: none; background: transparent; color: #ff4444; cursor: pointer; padding: 4px; flex-shrink: 0; margin-left: 8px; margin-right: 24px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+
+            console.log('Generated wallet options HTML:', walletOptions);
+
+            dropdown.innerHTML = `
+                <div class="existing-wallets-header" style="padding: 6px 12px; font-size: 11px; color: #cfe4f7; font-weight: 600; border-bottom: 1px solid rgba(69,139,189,.3); margin-bottom: 6px;">
+                    Select wallet to unlock:
+                </div>
+                <div class="wallet-list" style="max-height: 120px; overflow-y: auto; width: 100%;">
+                    ${walletOptions}
+                </div>
+                <div style="padding: 6px 10px; border-top: 1px solid rgba(69,139,189,.3); margin-top: 6px;">
+                    <button type="button" class="traditional-provider" onclick="showCreateWalletForm(this.closest('.traditional-dropdown'), ${walletIndex});" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.08); color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; font-size: 13px;">
+                        <div class="traditional-provider-icon" style="background: #ff6b35; width: 20px; height: 20px; font-size: 9px; flex-shrink: 0;">TW</div>
+                        <span class="traditional-provider-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Create New Wallet</span>
+                    </button>
+                </div>
+            `;
+            console.log('Set dropdown innerHTML with wallet options');
+            dropdown.classList.add('visible');
+        }
+
+        function showCreateWalletForm(dropdown, walletIndex) {
+            console.log('showCreateWalletForm called with dropdown:', dropdown, 'walletIndex:', walletIndex);
+
+            dropdown.innerHTML = `
+                <div class="traditional-provider-form" id="createWalletForm" style="padding: 8px 12px; max-height: none;">
+                    <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
+                        <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Wallet Name:</label>
+                        <input type="text" id="createWalletName" placeholder="Enter wallet name" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                    </div>
+                    <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
+                        <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Password:</label>
+                        <input type="password" id="createWalletPassword" placeholder="Min 8 characters" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                    </div>
+                    <div class="form-row" style="display: flex; align-items: center; margin-bottom: 8px; gap: 8px;">
+                        <label style="font-size: 10px; color: #cfe4f7; font-weight: 600; min-width: 80px;">Confirm:</label>
+                        <input type="password" id="createWalletConfirmPassword" placeholder="Confirm password" style="flex: 1; font-size: 10px; padding: 4px 6px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7;" />
+                    </div>
+                    <div class="form-actions" style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+                        <button type="button" onclick="showExistingWallets(this.closest('.traditional-dropdown'), getStoredWallets(), ${walletIndex});" style="font-size: 10px; padding: 4px 8px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: transparent; color: #cfe4f7; cursor: pointer;">Back</button>
+                        <button type="button" onclick="handleCreateWalletForm(${walletIndex})" class="create-btn" style="font-size: 10px; padding: 4px 8px; border: none; border-radius: 4px; background: #ff6b35; color: white; cursor: pointer; font-weight: 600;">Create</button>
+                    </div>
+                </div>
+            `;
         }
 
         function closeAllTraditionalDropdowns() {
@@ -2001,29 +2122,16 @@
             }
         }
 
-        async function unlockWallet() {
+        async function unlockSpecificWallet(walletName) {
             try {
                 const storedWallets = getStoredWallets();
-                if (storedWallets.length === 0) {
-                    alert('No stored wallets found. Create a wallet first.');
-                    return;
-                }
-
-                // Show wallet selection
-                const walletNames = storedWallets.map(w => w.name).join('\n');
-                const selectedName = prompt(`Select a wallet to unlock:\n${walletNames}`);
-                if (!selectedName) {
-                    logOutput('Wallet unlock cancelled');
-                    return;
-                }
-
-                const wallet = storedWallets.find(w => w.name === selectedName);
+                const wallet = storedWallets.find(w => w.name === walletName);
                 if (!wallet) {
                     alert('Wallet not found');
                     return;
                 }
 
-                const password = prompt(`Enter password for "${selectedName}":`);
+                const password = prompt(`Enter password for "${walletName}":`);
                 if (!password) {
                     logOutput('Wallet unlock cancelled');
                     return;
@@ -2045,6 +2153,32 @@
                 logOutput(`Wallet "${wallet.name}" unlocked successfully!`);
                 logOutput(`Address: ${wallet.address}`);
                 await getWalletBalance();
+
+                // Close the wallet modal
+                closeWalletModal();
+            } catch (error) {
+                logOutput('Error unlocking wallet: ' + error.message, true);
+                alert('Error unlocking wallet: ' + error.message);
+            }
+        }
+
+        async function unlockWallet() {
+            try {
+                const storedWallets = getStoredWallets();
+                if (storedWallets.length === 0) {
+                    alert('No stored wallets found. Create a wallet first.');
+                    return;
+                }
+
+                // Show wallet selection
+                const walletNames = storedWallets.map(w => w.name).join('\n');
+                const selectedName = prompt(`Select a wallet to unlock:\n${walletNames}`);
+                if (!selectedName) {
+                    logOutput('Wallet unlock cancelled');
+                    return;
+                }
+
+                await unlockSpecificWallet(selectedName);
             } catch (error) {
                 logOutput('Error unlocking wallet: ' + error.message, true);
                 alert('Error unlocking wallet: ' + error.message);
@@ -2058,6 +2192,11 @@
         window.closeAllTraditionalDropdowns = closeAllTraditionalDropdowns;
         window.unlockWallet = unlockWallet;
         window.handleCreateWalletForm = handleCreateWalletForm;
+        window.showTraditionalWalletOptions = showTraditionalWalletOptions;
+        window.showExistingWallets = showExistingWallets;
+        window.showCreateWalletForm = showCreateWalletForm;
+        window.unlockSpecificWallet = unlockSpecificWallet;
+        window.deleteWalletAndRefresh = deleteWalletAndRefresh;
 
         window.connectWalletByIndex = async function(i) {
             try {
@@ -2577,6 +2716,7 @@
         window.createNewWallet = createNewWallet;
         window.restoreWallet = restoreWallet;
         window.getWalletBalance = getWalletBalance;
+        window.getStoredWallets = getStoredWallets;
         window.changeNetwork = changeNetwork;
         window.clearOutput = clearOutput;
         window.connectWalletStandard = connectWalletStandard;
