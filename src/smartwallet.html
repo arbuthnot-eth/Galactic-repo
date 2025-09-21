@@ -533,17 +533,6 @@
             }
         }
 
-        function refreshTraditionalWalletDropdown() {
-            // Find all traditional wallet dropdowns and refresh them
-            const dropdowns = document.querySelectorAll('.traditional-dropdown');
-            dropdowns.forEach(dropdown => {
-                if (dropdown.classList.contains('visible')) {
-                    const walletIndex = parseInt(dropdown.id.replace('traditionalDropdown', ''));
-                    showTraditionalWalletOptions(dropdown, walletIndex);
-                }
-            });
-        }
-
 
         function resolveEnokiNetwork(network) {
             switch ((network || '').toLowerCase()) {
@@ -2021,10 +2010,7 @@
         function toggleTraditionalWalletOptions(event, walletIndex) {
             event.stopPropagation();
 
-            console.log('toggleTraditionalWalletOptions called with walletIndex:', walletIndex);
-
             const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
-            console.log('Dropdown element found:', dropdown);
 
             if (!dropdown) {
                 console.error('Dropdown element not found for walletIndex:', walletIndex);
@@ -2033,7 +2019,6 @@
 
             // Close any other open dropdowns
             const allDropdowns = document.querySelectorAll('.traditional-dropdown');
-            console.log('Found dropdowns:', allDropdowns.length);
 
             allDropdowns.forEach(d => {
                 if (d !== dropdown) d.classList.remove('visible');
@@ -2044,25 +2029,17 @@
         }
 
         function showTraditionalWalletOptions(dropdown, walletIndex) {
-            console.log('showTraditionalWalletOptions called with dropdown:', dropdown, 'walletIndex:', walletIndex);
-            console.log('Dropdown classes before:', dropdown.className);
-
             // Always get fresh wallet list when showing options
             const storedWallets = getStoredWallets();
-            console.log('Found stored wallets:', storedWallets.length, storedWallets);
 
             // Always show the same dropdown structure
             showExistingWallets(dropdown, storedWallets, walletIndex);
 
             // Make sure the dropdown is visible
             dropdown.classList.add('visible');
-            console.log('Dropdown classes after:', dropdown.className);
-            console.log('Dropdown display style:', getComputedStyle(dropdown).display);
         }
 
         function showExistingWallets(dropdown, storedWallets, walletIndex) {
-            console.log('showExistingWallets called with dropdown:', dropdown, 'wallets:', storedWallets);
-
             // Generate wallet list (empty if no wallets)
             const walletOptions = storedWallets.map(wallet => `
                 <div class="wallet-item" style="display: flex; align-items: center; gap: 8px; padding: 2px 12px; margin: 0; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease;">
@@ -2077,8 +2054,6 @@
                     </button>
                 </div>
             `).join('');
-
-            console.log('Generated wallet options HTML:', walletOptions);
 
             dropdown.innerHTML = `
                 ${storedWallets.length > 0 ? `
@@ -2125,13 +2100,10 @@
                     </div>
                 </div>
             `;
-            console.log('Set dropdown innerHTML with wallet options');
             dropdown.classList.add('visible');
         }
 
         function showCreateWalletForm(dropdown, walletIndex) {
-            console.log('showCreateWalletForm called with dropdown:', dropdown, 'walletIndex:', walletIndex);
-
             if (!dropdown) {
                 console.error('No dropdown element provided to showCreateWalletForm');
                 return;
@@ -2140,7 +2112,6 @@
             // Clear dropdown completely first and force a reflow
             dropdown.innerHTML = '';
             dropdown.className = 'traditional-dropdown visible';
-            console.log('Dropdown cleared, setting new form HTML...');
 
             // Force DOM reflow before setting new content
             dropdown.offsetHeight;
@@ -2171,8 +2142,6 @@
                 </div>
             `;
 
-            console.log('Create wallet form HTML set successfully');
-            console.log('Final dropdown content:', dropdown.innerHTML);
         }
 
         function closeAllTraditionalDropdowns() {
@@ -2247,15 +2216,6 @@
             }
         }
 
-        async function showImportWalletModal() {
-            try {
-                await ensureSdkReady();
-                await unlockWallet();
-            } catch (error) {
-                logOutput('Import wallet error: ' + error.message, true);
-            }
-        }
-
         async function unlockSpecificWallet(walletName) {
             try {
                 const storedWallets = getStoredWallets();
@@ -2296,35 +2256,11 @@
             }
         }
 
-        async function unlockWallet() {
-            try {
-                const storedWallets = getStoredWallets();
-                if (storedWallets.length === 0) {
-                    alert('No stored wallets found. Create a wallet first.');
-                    return;
-                }
-
-                // Show wallet selection
-                const walletNames = storedWallets.map(w => w.name).join('\n');
-                const selectedName = prompt(`Select a wallet to unlock:\n${walletNames}`);
-                if (!selectedName) {
-                    logOutput('Wallet unlock cancelled');
-                    return;
-                }
-
-                await unlockSpecificWallet(selectedName);
-            } catch (error) {
-                logOutput('Error unlocking wallet: ' + error.message, true);
-                alert('Error unlocking wallet: ' + error.message);
-            }
-        }
-
         window.toggleZkLoginProviders = toggleZkLoginProviders;
         window.connectZkLoginProvider = connectZkLoginProvider;
 
         window.toggleTraditionalWalletOptions = toggleTraditionalWalletOptions;
         window.closeAllTraditionalDropdowns = closeAllTraditionalDropdowns;
-        window.unlockWallet = unlockWallet;
         window.handleCreateWalletForm = handleCreateWalletForm;
         window.showTraditionalWalletOptions = showTraditionalWalletOptions;
         window.showExistingWallets = showExistingWallets;
@@ -2796,21 +2732,6 @@
             }
         }
 
-        // Network change handler
-        function changeNetwork() {
-            const networkSelect = document.getElementById('networkSelect');
-            currentNetwork = networkSelect.value;
-            logOutput(`Network changed to: ${currentNetwork}`);
-            
-            // Reinitialize client
-            initializeSuiClient().then(() => {
-                if (currentWallet) {
-                    getWalletBalance();
-                }
-            });
-        }
-
-
         function clearOutput() {
             document.getElementById('output').textContent = '';
         }
@@ -2852,7 +2773,6 @@
 
         window.getWalletBalance = getWalletBalance;
         window.getStoredWallets = getStoredWallets;
-        window.changeNetwork = changeNetwork;
         window.clearOutput = clearOutput;
         window.connectWalletStandard = connectWalletStandard;
         window.disconnectWallet = disconnectWallet;
