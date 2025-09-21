@@ -1596,12 +1596,6 @@
         }
 
 
-        // Wallet Management Functions
-        async function createNewWallet() {
-            // This function is not used anymore since the form is directly in the dropdown
-            // The form calls handleCreateWalletForm directly
-        }
-
         async function createOrImportWallet({ name, rawPrivateKey, password, confirmPassword }) {
             const trimmedName = (name || '').trim();
             if (!trimmedName) {
@@ -1692,38 +1686,6 @@
             } catch (error) {
                 logOutput('Error creating or importing wallet: ' + error.message, true);
                 alert('Error creating or importing wallet: ' + error.message);
-            }
-        }
-
-        async function restoreWallet() {
-            const privateKey = prompt('Enter your private key to import wallet:');
-            if (!privateKey) {
-                logOutput('Import cancelled by user');
-                return;
-            }
-
-            if (!privateKey.trim()) {
-                logOutput('Please enter a valid private key', true);
-                return;
-            }
-
-            try {
-                await ensureSdkReady();
-                logOutput('Restoring wallet from private key...');
-                const { Ed25519Keypair } = window.SuiSDK.Sui;
-                const keypair = Ed25519Keypair.fromSecretKey(privateKey);
-                const address = keypair.toSuiAddress();
-                
-                currentWallet = { address, keypair, type: 'traditional' };
-                showCurrentWalletAddress(address);
-                document.getElementById('walletInfo').style.display = 'block';
-                updateWalletConnectionControls(true);
-                
-                logOutput('Wallet restored successfully!');
-                logOutput(`Address: ${address}`);
-                await getWalletBalance();
-            } catch (error) {
-                logOutput('Error restoring wallet: ' + error.message, true);
             }
         }
 
@@ -2888,8 +2850,6 @@
             }
         }
 
-        window.createNewWallet = createNewWallet;
-        window.restoreWallet = restoreWallet;
         window.getWalletBalance = getWalletBalance;
         window.getStoredWallets = getStoredWallets;
         window.changeNetwork = changeNetwork;
