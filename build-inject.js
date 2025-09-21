@@ -156,7 +156,7 @@ try {
         });
       };
       window.__SMARTWALLET_ZKLOGIN_BASE64 = '${zkLoginBundleBase64}';
-      window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/png;base64,${passkeyIconBase64}';
+      window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/png;base64,' + '${passkeyIconBase64}';
     </script>`;
     }
 

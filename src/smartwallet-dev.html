@@ -6,7 +6,7 @@
     <title>Galactic Wallet</title>
 
     <!-- Dev favicon: served from assets; injector may override in prod -->
-    <link rel="icon" type="image/png" href="/assets/favicon-128.png">
+    <link rel="icon" type="image/png" href="/assets/favicon-128.png" onerror="this.onerror=null; this.href='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzQ1OEJCRCIvPgo8dGV4dCB4PSI1MCUiIHk9IjUwJSIgZmlsbD0iI0ZGRkZGRiIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIGZvbnQtd2VpZ2h0PSI2MDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJjZW50cmFsIj5XPC90ZXh0Pgo8L3N2Zz4='">
     <script>
         // Optimized favicon loading - defer until critical content loads
         window.addEventListener('load',function(){
@@ -180,6 +180,28 @@
         .zklogin-provider:first-child { border-radius: 8px 8px 0 0; }
         .zklogin-provider:last-child { border-radius: 0 0 8px 8px; }
         .zklogin-provider:only-child { border-radius: 8px; }
+
+        /* Traditional wallet dropdown styles */
+        .traditional-providers { position: relative; display: inline-block; width: 100%; }
+        .traditional-providers .wallet-card { margin: 0; }
+        .traditional-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: linear-gradient(145deg, #1e3a52 0%, #2d4a66 100%); border: 1px solid rgba(69,139,189,.4); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1001; display: none; margin-top: 4px; }
+        .traditional-dropdown.visible { display: block; }
+        .traditional-provider { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: none; background: transparent; color: #cfe4f7; cursor: pointer; width: 100%; text-align: left; transition: background .2s ease; }
+        .traditional-provider:hover { background: rgba(69,139,189,.15); }
+        .traditional-provider:first-child { border-radius: 8px 8px 0 0; }
+        .traditional-provider:last-child { border-radius: 0 0 8px 8px; }
+        .traditional-provider:only-child { border-radius: 8px; }
+        .traditional-provider-icon { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 10px; }
+
+        /* Traditional wallet form styles */
+        .traditional-provider-form { padding: 12px; }
+        .form-field { margin-bottom: 12px; }
+        .form-field label { display: block; margin-bottom: 4px; color: #cfe4f7; font-weight: 600; font-size: 12px; }
+        .form-field input { width: 100%; padding: 6px 8px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: rgba(69,139,189,.1); color: #cfe4f7; font-size: 12px; }
+        .form-field input:focus { outline: none; border-color: rgba(90,155,212,.6); }
+        .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+        .form-actions button { padding: 6px 12px; border: 1px solid rgba(69,139,189,.3); border-radius: 4px; background: transparent; color: #cfe4f7; cursor: pointer; font-size: 11px; }
+        .form-actions .create-btn { background: #ff6b35; border-color: #ff6b35; color: white; font-weight: 600; }
         .zklogin-provider-icon { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
         .zklogin-provider-icon svg { width: 100%; height: 100%; }
         .zklogin-provider-name { font-weight: 500; }
@@ -310,8 +332,6 @@
                 .replace(/'/g, '&#39;');
         }
 
-
-
         function makeWalletIcon(label, bg, fg = '#ffffff') {
             const text = (label || 'W').toString().trim().slice(0, 2).toUpperCase() || 'W';
             const fontSize = text.length > 1 ? 18 : 22;
@@ -319,60 +339,131 @@
             return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
         }
 
-        function base64ToUint8Array(value) {
+        // Wallet encryption/decryption utilities
+        async function encryptPrivateKey(privateKey, password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(privateKey);
+            const passwordData = encoder.encode(password);
+
+            // Derive key from password
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                passwordData,
+                'PBKDF2',
+                false,
+                ['deriveBits', 'deriveKey']
+            );
+
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const key = await crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                true,
+                ['encrypt', 'decrypt']
+            );
+
+            // Encrypt the private key
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encrypted = await crypto.subtle.encrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: iv
+                },
+                key,
+                data
+            );
+
+            // Combine salt + iv + encrypted data
+            const result = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+            result.set(salt, 0);
+            result.set(iv, salt.length);
+            result.set(new Uint8Array(encrypted), salt.length + iv.length);
+
+            return btoa(String.fromCharCode.apply(null, result));
+        }
+
+        async function decryptPrivateKey(encryptedData, password) {
             try {
-                let binary;
-                if (typeof window !== 'undefined' && typeof window.atob === 'function') {
-                    binary = window.atob(value);
-                } else if (typeof Buffer !== 'undefined') {
-                    binary = Buffer.from(value, 'base64').toString('binary');
-                } else {
-                    throw new Error('No base64 decoder available in this environment');
-                }
-                const len = binary.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) {
-                    bytes[i] = binary.charCodeAt(i);
-                }
-                return bytes;
+                const decoder = new TextDecoder();
+                const data = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+
+                const salt = data.slice(0, 16);
+                const iv = data.slice(16, 28);
+                const encrypted = data.slice(28);
+
+                const passwordData = new TextEncoder().encode(password);
+
+                const keyMaterial = await crypto.subtle.importKey(
+                    'raw',
+                    passwordData,
+                    'PBKDF2',
+                    false,
+                    ['deriveBits', 'deriveKey']
+                );
+
+                const key = await crypto.subtle.deriveKey(
+                    {
+                        name: 'PBKDF2',
+                        salt: salt,
+                        iterations: 100000,
+                        hash: 'SHA-256'
+                    },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    true,
+                    ['encrypt', 'decrypt']
+                );
+
+                const decrypted = await crypto.subtle.decrypt(
+                    {
+                        name: 'AES-GCM',
+                        iv: iv
+                    },
+                    key,
+                    encrypted
+                );
+
+                return decoder.decode(decrypted);
             } catch (error) {
-                console.warn('Failed to decode base64 payload', error);
-                return null;
+                throw new Error('Invalid password or corrupted data');
             }
         }
 
-        function bytesToHex(bytes) {
-            return Array.from(bytes || [], (b) => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        function decodeULEB(bytes, offset) {
-            let value = 0;
-            let shift = 0;
-            let position = offset || 0;
-            while (position < bytes.length) {
-                const byte = bytes[position];
-                value |= (byte & 0x7f) << shift;
-                position += 1;
-                if ((byte & 0x80) === 0) {
-                    break;
+        // Wallet storage management
+        function getStoredWallets() {
+            const wallets = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('galactic:wallet:')) {
+                    try {
+                        const walletData = JSON.parse(localStorage.getItem(key));
+                        wallets.push(walletData);
+                    } catch (e) {
+                        // Skip corrupted entries
+                    }
                 }
-                shift += 7;
             }
-            return { value, nextOffset: position };
+            return wallets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         }
 
-        function decodeAddressVector(bytes) {
-            if (!(bytes instanceof Uint8Array) || !bytes.length) return [];
-            const { value: length, nextOffset } = decodeULEB(bytes, 0);
-            const addresses = [];
-            let offset = nextOffset;
-            for (let i = 0; i < length; i++) {
-                const slice = bytes.slice(offset, offset + 32);
-                if (slice.length < 32) break;
-                addresses.push('0x' + bytesToHex(slice));
-                offset += 32;
-            }
-            return addresses;
+        function saveWallet(name, encryptedPrivateKey, address) {
+            const walletData = {
+                name,
+                encryptedPrivateKey,
+                address,
+                createdAt: new Date().toISOString()
+            };
+            localStorage.setItem(`galactic:wallet:${name}`, JSON.stringify(walletData));
+        }
+
+        function deleteWallet(name) {
+            localStorage.removeItem(`galactic:wallet:${name}`);
         }
 
 
@@ -974,7 +1065,7 @@
         }
 
         function buildPrimaryWalletEntries() {
-            return [
+            const entries = [
                 {
                     type: 'custom',
                     action: 'zkLogin',
@@ -986,8 +1077,16 @@
                     action: 'passkey',
                     name: 'Passkey (Preview)',
                     icon: window.__SMARTWALLET_PASSKEY_ICON__ || makeWalletIcon('PK', '#1c858f')
+                },
+                {
+                    type: 'custom',
+                    action: 'traditionalWallet',
+                    name: 'Traditional Wallet',
+                    icon: makeWalletIcon('TW', '#ff6b35')
                 }
             ];
+
+            return entries;
         }
 
         function getWalletIconForEntry(entry) {
@@ -995,6 +1094,7 @@
                 if (entry && typeof entry.icon === 'string') {
                     return entry.icon;
                 }
+
                 const wallet = entry && entry.wallet ? entry.wallet : null;
                 const iconCandidates = [];
                 if (wallet) {
@@ -1358,51 +1458,6 @@
             });
         }
 
-
-
-        // Derive member count from Move object fields; fall back to at least 1 (creator)
-        function getMemberCountFromWalletFields(fields) {
-            try {
-                const members = fields && (fields.members || (fields.value && fields.value.members));
-                const mf = members && (members.fields || (members.value && members.value.fields));
-                if (!mf) return 1;
-                if (typeof mf.size === 'number') {
-                    const n = Number(mf.size) || 0;
-                    return Math.max(1, n);
-                }
-                if (Array.isArray(mf.contents)) {
-                    return Math.max(1, mf.contents.length);
-                }
-            } catch (e) {}
-            return 1;
-        }
-
-        // Helper: try to extract a created objectId of a given type from a tx digest
-        async function extractCreatedObjectIdFromDigest(digest, objectType, maxRetries = 8, delayMs = 800) {
-            try {
-                for (let i = 0; i < maxRetries; i++) {
-                    if (!suiClient || typeof suiClient.getTransactionBlock !== 'function') {
-                        break;
-                    }
-                    try {
-                        const txb = await suiClient.getTransactionBlock({
-                            digest,
-                            options: { showEffects: true, showObjectChanges: true }
-                        });
-                        const oc = txb && txb.objectChanges ? txb.objectChanges : [];
-                        if (Array.isArray(oc) && oc.length) {
-                            const created = oc.find(c => c.type === 'created' && c.objectType === objectType);
-                            if (created && created.objectId) return created.objectId;
-                        }
-                    } catch (e) {
-                        // swallow and retry
-                    }
-                    await new Promise(r => setTimeout(r, delayMs));
-                }
-            } catch (_) {}
-            return null;
-        }
-
         // Initialize Sui client - optimized for performance
         async function initializeSuiClient() {
             if (suiClient) return suiClient;
@@ -1465,30 +1520,88 @@
 
         // Wallet Management Functions
         async function createNewWallet() {
+            // This function is not used anymore since the form is directly in the dropdown
+            // The form calls handleCreateWalletForm directly
+        }
+
+        async function handleCreateWalletForm(walletIndex) {
+            const nameInput = document.getElementById('createWalletName');
+            const passwordInput = document.getElementById('createWalletPassword');
+            const confirmInput = document.getElementById('createWalletConfirmPassword');
+
+            const name = nameInput.value.trim();
+            const password = passwordInput.value;
+            const confirmPassword = confirmInput.value;
+
+            // Validate inputs
+            if (!name) {
+                alert('Please enter a wallet name');
+                return;
+            }
+
+            if (password.length < 8) {
+                alert('Password must be at least 8 characters long');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                alert('Passwords do not match');
+                return;
+            }
+
+            // Check if wallet name already exists
+            const existingWallets = getStoredWallets();
+            if (existingWallets.some(w => w.name === name)) {
+                alert('A wallet with this name already exists');
+                return;
+            }
+
             try {
                 await ensureSdkReady();
-                logOutput('Creating new traditional wallet...');
+                logOutput('Creating new wallet...');
+
+                // Generate keypair
                 const { Ed25519Keypair } = window.SuiSDK.Sui;
                 const keypair = Ed25519Keypair.generate();
                 const address = keypair.toSuiAddress();
-                
-                currentWallet = { address, keypair, type: 'traditional' };
+                const privateKey = keypair.getSecretKey();
+
+                // Encrypt private key
+                const encryptedPrivateKey = await encryptPrivateKey(privateKey, password);
+
+                // Save wallet
+                saveWallet(name, encryptedPrivateKey, address);
+
+                // Set as current wallet
+                currentWallet = { address, keypair, type: 'traditional', name };
                 showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
-                
-                logOutput('Traditional wallet created successfully!');
+
+                logOutput(`Wallet "${name}" created successfully!`);
                 logOutput(`Address: ${address}`);
                 await getWalletBalance();
+
+                // Close the dropdown
+                const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
+                if (dropdown) {
+                    dropdown.classList.remove('visible');
+                }
             } catch (error) {
                 logOutput('Error creating wallet: ' + error.message, true);
+                alert('Error creating wallet: ' + error.message);
             }
         }
 
         async function restoreWallet() {
-            const privateKey = document.getElementById('privateKeyInput').value.trim();
+            const privateKey = prompt('Enter your private key to import wallet:');
             if (!privateKey) {
-                logOutput('Please enter a private key', true);
+                logOutput('Import cancelled by user');
+                return;
+            }
+
+            if (!privateKey.trim()) {
+                logOutput('Please enter a valid private key', true);
                 return;
             }
 
@@ -1779,6 +1892,7 @@
                     var safeName = escapeHtml(name);
                     var safeIcon = escapeHtml(iconSrc);
 
+
                     // Special handling for zkLogin to show provider selection
                     if (e.type === 'custom' && e.action === 'zkLogin') {
                         html += '\n<div class="zklogin-providers">\n' +
@@ -1801,6 +1915,36 @@
                                 '      <div class="zklogin-provider-icon">' + ZKLOGIN_PROVIDERS.apple.icon + '</div>\n' +
                                 '      <span class="zklogin-provider-name">Apple</span>\n' +
                                 '    </button>\n' +
+                                '  </div>\n' +
+                                '</div>';
+                    } else if (e.type === 'custom' && e.action === 'traditionalWallet') {
+                        // Special handling for traditional wallet to show create/unlock options
+                        html += '\n<div class="traditional-providers">\n' +
+                                '  <button type="button" class="wallet-card" onclick="toggleTraditionalWalletOptions(event, ' + i + ')">\n' +
+                                '    <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
+                                '    <div class="wallet-card-content">\n' +
+                                '      <div class="wallet-card-name">' + safeName + '</div>\n' +
+                                '    </div>\n' +
+                                '  </button>\n' +
+                                '  <div class="traditional-dropdown" id="traditionalDropdown' + i + '">\n' +
+                                '    <div class="traditional-provider-form" id="createWalletForm">\n' +
+                                '      <div class="form-field">\n' +
+                                '        <label>Wallet Name:</label>\n' +
+                                '        <input type="text" id="createWalletName" placeholder="Enter wallet name" />\n' +
+                                '      </div>\n' +
+                                '      <div class="form-field">\n' +
+                                '        <label>Password:</label>\n' +
+                                '        <input type="password" id="createWalletPassword" placeholder="Min 8 characters" />\n' +
+                                '      </div>\n' +
+                                '      <div class="form-field">\n' +
+                                '        <label>Confirm Password:</label>\n' +
+                                '        <input type="password" id="createWalletConfirmPassword" placeholder="Confirm password" />\n' +
+                                '      </div>\n' +
+                                '      <div class="form-actions">\n' +
+                                '        <button type="button" onclick="unlockWallet(); closeAllTraditionalDropdowns();">Unlock Existing</button>\n' +
+                                '        <button type="button" onclick="handleCreateWalletForm(' + i + ')" class="create-btn">Create Wallet</button>\n' +
+                                '      </div>\n' +
+                                '    </div>\n' +
                                 '  </div>\n' +
                                 '</div>';
                     } else {
@@ -1829,8 +1973,91 @@
             document.body.style.overflow = '';
         }
 
+        function toggleTraditionalWalletOptions(event, walletIndex) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('traditionalDropdown' + walletIndex);
+            if (!dropdown) return;
+
+            // Close any other open dropdowns
+            const allDropdowns = document.querySelectorAll('.traditional-dropdown');
+            allDropdowns.forEach(d => {
+                if (d !== dropdown) d.classList.remove('visible');
+            });
+
+            // Toggle current dropdown
+            dropdown.classList.toggle('visible');
+        }
+
+        function closeAllTraditionalDropdowns() {
+            document.querySelectorAll('.traditional-dropdown').forEach(d => d.classList.remove('visible'));
+        }
+
+        async function showImportWalletModal() {
+            try {
+                await ensureSdkReady();
+                await unlockWallet();
+            } catch (error) {
+                logOutput('Import wallet error: ' + error.message, true);
+            }
+        }
+
+        async function unlockWallet() {
+            try {
+                const storedWallets = getStoredWallets();
+                if (storedWallets.length === 0) {
+                    alert('No stored wallets found. Create a wallet first.');
+                    return;
+                }
+
+                // Show wallet selection
+                const walletNames = storedWallets.map(w => w.name).join('\n');
+                const selectedName = prompt(`Select a wallet to unlock:\n${walletNames}`);
+                if (!selectedName) {
+                    logOutput('Wallet unlock cancelled');
+                    return;
+                }
+
+                const wallet = storedWallets.find(w => w.name === selectedName);
+                if (!wallet) {
+                    alert('Wallet not found');
+                    return;
+                }
+
+                const password = prompt(`Enter password for "${selectedName}":`);
+                if (!password) {
+                    logOutput('Wallet unlock cancelled');
+                    return;
+                }
+
+                // Decrypt private key
+                const privateKey = await decryptPrivateKey(wallet.encryptedPrivateKey, password);
+
+                // Recreate keypair
+                const { Ed25519Keypair } = window.SuiSDK.Sui;
+                const keypair = Ed25519Keypair.fromSecretKey(privateKey);
+
+                // Set as current wallet
+                currentWallet = { address: wallet.address, keypair, type: 'traditional', name: wallet.name };
+                showCurrentWalletAddress(wallet.address);
+                document.getElementById('walletInfo').style.display = 'block';
+                updateWalletConnectionControls(true);
+
+                logOutput(`Wallet "${wallet.name}" unlocked successfully!`);
+                logOutput(`Address: ${wallet.address}`);
+                await getWalletBalance();
+            } catch (error) {
+                logOutput('Error unlocking wallet: ' + error.message, true);
+                alert('Error unlocking wallet: ' + error.message);
+            }
+        }
+
         window.toggleZkLoginProviders = toggleZkLoginProviders;
         window.connectZkLoginProvider = connectZkLoginProvider;
+
+        window.toggleTraditionalWalletOptions = toggleTraditionalWalletOptions;
+        window.closeAllTraditionalDropdowns = closeAllTraditionalDropdowns;
+        window.unlockWallet = unlockWallet;
+        window.handleCreateWalletForm = handleCreateWalletForm;
 
         window.connectWalletByIndex = async function(i) {
             try {
@@ -1849,6 +2076,9 @@
                         throw new Error('zkLogin should use provider selection - this path should not be reached');
                     } else if (entry.action === 'passkey') {
                         await handlePasskeyStub();
+                    } else if (entry.action === 'traditionalWallet') {
+                        // Traditional wallet uses dropdown, no action needed here
+                        throw new Error('Traditional wallet should use dropdown - this path should not be reached');
                     } else {
                         throw new Error('Unsupported custom wallet entry');
                     }
@@ -2424,7 +2654,19 @@
                 if (closeButton) {
                     closeButton.addEventListener('click', () => closeWalletModal());
                 }
-                document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape') closeWalletModal(); });
+                document.addEventListener('keydown', function(ev){
+                    if (ev.key === 'Escape') {
+                        closeWalletModal();
+                        closeAllTraditionalDropdowns();
+                    }
+                });
+
+                // Close dropdowns when clicking outside
+                document.addEventListener('click', function(ev) {
+                    if (!ev.target.closest('.traditional-providers') && !ev.target.closest('.zklogin-providers')) {
+                        closeAllTraditionalDropdowns();
+                    }
+                });
             } catch (e) {}
 
             scheduleBootstrapWork();
@@ -2469,17 +2711,6 @@
                 </summary>
                 <div style="padding: 5px;">
 
-                    <!-- Traditional Options -->
-                    <details style="margin-top: 25px; border: 1px solid rgba(69,139,189,.3); border-radius: 8px; padding: 15px;">
-                        <summary style="cursor: pointer; font-weight: 600; color: #c3d5e8; font-size: 13px;">⚙️ Traditional Wallet Options</summary>
-                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(69,139,189,.2);">
-                            <button onclick="createNewWallet()">Create New Wallet</button>
-                            <div class="form-group">
-                                <input type="text" id="privateKeyInput" placeholder="Private key for import...">
-                                <button onclick="restoreWallet()">Import Wallet</button>
-                            </div>
-                        </div>
-                    </details>
                     
                     <!-- View-Only Connection -->
                     <details style="margin-top: 15px; border: 1px solid rgba(139,69,189,.3); border-radius: 8px; padding: 10px;">
