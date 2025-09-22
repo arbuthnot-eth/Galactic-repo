@@ -6,14 +6,12 @@ const path = require('path');
 const htmlFiles = [
   {
     input: 'src/smartwallet-dev.html',
-    output: 'src/smartwallet.html',
+    output: 'dist/smartwallet.html',
     name: 'SmartWallet'
   }
 ];
 
-const coreBundlePath = path.join(__dirname, 'dist/sui-sdk-core.iife.js');
 const minimalBundlePath = path.join(__dirname, 'dist/sui-sdk-minimal.iife.js');
-const extendedBundlePath = path.join(__dirname, 'dist/sui-sdk-extended.iife.js');
 const zkLoginBundlePath = path.join(__dirname, 'dist/zklogin-helpers.iife.js');
 
 /**
@@ -51,21 +49,12 @@ function createInlineLoader(bundle, { label }) {
 
 try {
   // Check if bundles exist
-  const hasCore = fs.existsSync(coreBundlePath);
   const hasMinimal = fs.existsSync(minimalBundlePath);
   const hasZkLogin = fs.existsSync(zkLoginBundlePath);
 
-  if (!hasCore && !hasMinimal) {
-    console.error('❌ No core bundle found! Please run "npm run build" first.');
+  if (!hasMinimal) {
+    console.error('❌ No minimal bundle found! Please run "npm run build:minimal" first.');
     process.exit(1);
-  }
-
-  // Read the core bundle for SmartWallet
-  let coreBundle = '';
-  if (hasCore) {
-    coreBundle = fs.readFileSync(coreBundlePath, 'utf8');
-    coreBundle = coreBundle.replace(/<\/script>/gi, '<\\/script>');
-    console.log('📦 Core bundle loaded successfully');
   }
 
   // Read the minimal bundle for SmartWallet
@@ -76,14 +65,6 @@ try {
     console.log('📦 Minimal bundle loaded successfully');
   }
 
-  // Check if extended bundle exists (external loading)
-  let extendedBundle = '';
-  const hasExtended = fs.existsSync(extendedBundlePath);
-  if (hasExtended) {
-    extendedBundle = fs.readFileSync(extendedBundlePath, 'utf8');
-    extendedBundle = extendedBundle.replace(/<\/script>/gi, '<\\/script>');
-    console.log('📦 Extended bundle loaded successfully');
-  }
 
   let zkLoginBundle = '';
   let zkLoginBundleBase64 = '';
@@ -110,15 +91,14 @@ try {
     // Read the base HTML file
     let html = fs.readFileSync(inputPath, 'utf8');
     
-    // Choose bundle based on target: minimal for SmartWallet
-    const useMinimal = file.name === 'SmartWallet' && hasMinimal;
-    const bundleToUse = useMinimal ? minimalBundle : coreBundle;
-    const bundleName = useMinimal ? 'minimal' : 'core';
+    // Use minimal bundle for SmartWallet
+    const bundleToUse = minimalBundle;
+    const bundleName = 'minimal';
 
     const inlineLoader = createInlineLoader(bundleToUse, { label: `${file.name} ${bundleName}` });
     let bundleReplacement = inlineLoader;
 
-    // For SmartWallet, only load core bundle - extended features on demand only
+    // For SmartWallet, only load minimal bundle - extended features on demand only
     if (file.name === 'SmartWallet') {
       // Read the passkey icon and convert to base64
       const passkeyIconPath = path.join(__dirname, 'assets', 'passkey-low.png');
@@ -131,30 +111,7 @@ try {
       bundleReplacement += `
     <script>
       // SmartWallet performance optimization: Using ${bundleName} bundle
-      console.log('SmartWallet: ${bundleName} SDK loaded. Extended features available on request.');
-
-      // Function to load extended SDK if needed (not auto-loaded)
-      window.loadExtendedSDK = function() {
-        if (window.SuiSDK && window.SuiSDK.DappKit) {
-          console.log('Extended SDK already loaded');
-          return Promise.resolve();
-        }
-
-        console.log('Loading extended SDK on demand...');
-        return new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = '/dist/sui-sdk-extended.iife.js';
-          script.onload = () => {
-            console.log('Extended SDK loaded successfully');
-            resolve();
-          };
-          script.onerror = () => {
-            console.error('Failed to load extended SDK');
-            reject(new Error('Failed to load extended SDK'));
-          };
-          document.head.appendChild(script);
-        });
-      };
+      console.log('SmartWallet: ${bundleName} SDK loaded. All features available.');
       window.__SMARTWALLET_ZKLOGIN_BASE64 = '${zkLoginBundleBase64}';
       window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/png;base64,' + '${passkeyIconBase64}';
     </script>`;
@@ -180,16 +137,8 @@ try {
     // Remove any dev-only script references (if they exist)
     html = html.replace(/<script src="\.?\/dist\/sui-sdk-.*\.iife\.js"><\/script>/g, '');
     
-    // Write the production HTML file (root)
+    // Write the production HTML file to dist/
     fs.writeFileSync(outputPath, html);
-
-    // Also write into dist/ so `vite preview` or any static server can serve it without dev transforms
-    try {
-      const distOut = path.join(__dirname, 'dist', file.output);
-      fs.writeFileSync(distOut, html);
-    } catch (e) {
-      // Non-fatal: dist folder should exist after vite build; if not, skip
-    }
     
     const stats = fs.statSync(outputPath);
     const fileSize = (stats.size / 1024 / 1024).toFixed(2);

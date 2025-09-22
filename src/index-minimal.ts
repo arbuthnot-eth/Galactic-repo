@@ -14,14 +14,14 @@ import { getExtendedEphemeralPublicKey, getZkLoginSignature } from '@mysten/sui/
 // BCS - only fromBase64 (bcs object not used directly)
 import { fromBase64 } from '@mysten/bcs';
 
-// Enoki - only EnokiClient
-import { EnokiClient } from '@mysten/enoki';
-
 // SuiNS - required for core functionality
 import { SuinsClient } from '@mysten/suins';
 
 // WalletStandard - only getWallets
 import { getWallets } from '@mysten/wallet-standard';
+
+// Local zkLogin helper (mock/prover utilities)
+import LocalZkLogin from './local-zklogin';
 
 // Minimal Sui object with only used functions
 const Sui = {
@@ -57,11 +57,6 @@ const WalletStandard = {
   getWallets,
 };
 
-// Minimal Enoki object
-const Enoki = {
-  EnokiClient,
-};
-
 // Ultra-minimal SDK interface
 declare global {
   interface Window {
@@ -71,14 +66,15 @@ declare global {
       ZkLogin: typeof ZkLogin;
       SuiNS: typeof SuiNS;
       WalletStandard: typeof WalletStandard;
-      Enoki: typeof Enoki;
-      // Extended SDKs loaded separately
-      DappKit?: any;
-      Walrus?: any;
-      Seal?: any;
-      Kiosk?: any;
-      ZkSend?: any;
-      GraphQLTransport?: any;
+      LocalZkLogin: typeof LocalZkLogin;
+      // Extended SDKs
+      // Walrus?: any;
+      // Seal?: any;
+      // DappKit?: any;
+      // GraphQLTransport?: any;
+      // ZkSend?: any;
+      // Kiosk?: any;
+      // Bip39?: any;
     };
   }
 }
@@ -89,23 +85,6 @@ window.SuiSDK = {
   ZkLogin,
   SuiNS,
   WalletStandard,
-  Enoki,
+  LocalZkLogin,
 };
 
-// Legacy globals for Enoki
-try {
-  (window as any).EnokiClient = EnokiClient;
-  (window as any).EnokiSDK = { EnokiClient };
-} catch (_) {}
-
-// Environment variables - simplified for minimal bundle
-try {
-  if (typeof (import.meta as any)?.env?.VITE_ENOKI_PUBLIC_API_KEY === 'string') {
-    (window as any).ENOKI_API_KEY = (import.meta as any).env.VITE_ENOKI_PUBLIC_API_KEY;
-  }
-  if (typeof (import.meta as any)?.env?.VITE_ENOKI_API_URL === 'string') {
-    (window as any).ENOKI_API_URL = (import.meta as any).env.VITE_ENOKI_API_URL;
-  }
-} catch (_) {}
-
-// Bundle loaded successfully

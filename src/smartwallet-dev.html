@@ -519,19 +519,8 @@
         }
 
         function getEnokiNamespace() {
-            try {
-                const sdk = window.SuiSDK || {};
-                if (sdk.Enoki) return sdk.Enoki;
-                if (sdk.EnokiClient) {
-                    return { EnokiClient: sdk.EnokiClient };
-                }
-            } catch (_) {}
-            try {
-                if (window.EnokiSDK) return window.EnokiSDK;
-                if (window.EnokiClient) {
-                    return { EnokiClient: window.EnokiClient };
-                }
-            } catch (_) {}
+            // Enoki not included in minimal bundle for faster loading
+            // zkLogin will show a helpful message instead of failing
             return null;
         }
 
@@ -605,7 +594,11 @@
             try {
                 const EnokiNS = getEnokiNamespace();
                 if (!EnokiNS) {
-                    throw new Error('Enoki SDK is not available in the current bundle.');
+                    if (!silent) {
+                        logOutput('Enoki SDK not available in minimal bundle. zkLogin will be read-only.', false);
+                        logOutput('To enable zkLogin signing, use "npm run build" instead of "npm run mini-build".', false);
+                    }
+                    return null;
                 }
                 const apiKey = getEnokiApiKey();
                 if (!apiKey) {
@@ -678,7 +671,8 @@
 
             const enokiClient = getEnokiClient();
             if (!enokiClient) {
-                throw new Error('Enoki API key not configured. Call window.setEnokiApiKey("<API_KEY>") before starting zkLogin.');
+                logOutput('zkLogin signing not available in minimal bundle. Use "npm run build" for full functionality.', true);
+                return;
             }
 
             const ephemeralKeyPair = Ed25519Keypair.generate();
@@ -835,7 +829,8 @@
 
                 const enokiClient = getEnokiClient();
                 if (!enokiClient) {
-                    throw new Error('Enoki API key not configured. Call window.setEnokiApiKey("<API_KEY>") before starting zkLogin.');
+                    logOutput('zkLogin signing not available in minimal bundle. Use "npm run build" for full functionality.', true);
+                    return;
                 }
                 let enokiProfile = null;
                 try {

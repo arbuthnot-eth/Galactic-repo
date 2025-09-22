@@ -14,17 +14,12 @@ import {
   generateRandomness,
 } from '@mysten/sui/zklogin';
 
-declare global {
-  interface Window {
-    SuiSDK?: Record<string, any>;
-    __zkLoginHelpersLoaded__?: boolean;
-  }
-}
+// Use type assertion instead of interface declaration to avoid conflicts
 
 const globalTarget = typeof window !== 'undefined' ? window : (globalThis as any);
 
-if (globalTarget && !globalTarget.__zkLoginHelpersLoaded__) {
-  const sdk = globalTarget.SuiSDK ?? {};
+if (globalTarget && !(globalTarget as any).__zkLoginHelpersLoaded__) {
+  const sdk = (globalTarget as any).SuiSDK ?? {};
   const existingZkLogin = sdk.ZkLogin ?? {};
 
   sdk.ZkLogin = {

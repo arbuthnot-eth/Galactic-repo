@@ -8,15 +8,15 @@
 - **Project Structure & Module Organization**
   - `src/`: TypeScript sources. `index.ts` bundles Mysten SDKs to `window.SuiSDK`.
   - `src/smartwallet-dev.html`: SmartWallet development HTML template served by the dev server. This is the primary editable HTML surface for SmartWallet functionality. Uses a shared Roster object for membership indexing; UI variables and docs consistently use `roster` naming (e.g., `rosterId`).
-  - `src/smartwallet.html`: SmartWallet single-file build output (auto-generated from `src/smartwallet-dev.html` during injection/build; never edit directly).
+  - `dist/smartwallet.html`: SmartWallet single-file build output (auto-generated from `src/smartwallet-dev.html` during injection/build; never edit directly).
   - `dist/`: Build output (`sui-sdk-bundle.iife.js`).
   - `scripts/`: Dev utilities (`tunnel-dev.sh`).
   - Config: `vite.config.ts`, `tsconfig.json`. Auth callback assets under `auth/`.
 
 - **CRITICAL Build Workflow**:
   - **ONLY EDIT `src/smartwallet-dev.html`** - This is the primary development template for SmartWallet functionality. It must stay in sync with the roster-driven UX and is the source of truth for SmartWallet markup and scripting.
-  - **NEVER EDIT `src/smartwallet.html`** - This file is auto-generated from `src/smartwallet-dev.html` by the HTML injector during `npm run inject` and `npm run build`.
-  - Build process: `npm run build` compiles TypeScript and injects the `dist/sui-sdk-bundle.iife.js` bundle into `src/smartwallet.html` (via the injector pipeline).
+  - **NEVER EDIT `dist/smartwallet.html`** - This file is auto-generated from `src/smartwallet-dev.html` by the HTML injector during `npm run inject` and `npm run build`.
+  - Build process: `npm run build` compiles TypeScript and injects the `dist/sui-sdk-minimal.iife.js` bundle into `dist/smartwallet.html` (via the injector pipeline).
 
 - **Technology Stack**
   - TypeScript, ESNext with 2-space indentation, semicolons, and single quotes
@@ -50,7 +50,7 @@
 - **Critical Files to Review**
   - `src/index.ts`: Main SDK bundling and browser API exposure
   - `src/smartwallet-dev.html`: SmartWallet development template (**ONLY FILE TO EDIT**)
-  - `src/smartwallet.html`: SmartWallet single-file output (**AUTO-GENERATED - DO NOT EDIT**)
+  - `dist/smartwallet.html`: SmartWallet single-file output (**AUTO-GENERATED - DO NOT EDIT**)
   - `vite.config.ts`: Build configuration
   - `package.json`: Dependencies and scripts
 
@@ -98,7 +98,7 @@
   - [ ] Update `src/index.ts` for new SDK exports
   - [ ] Update HTML templates if needed (`src/smartwallet-dev.html`; never touch generated outputs)
   - [ ] Test build process with `npm run build`
-  - [ ] Verify bundle injection works correctly for `src/smartwallet.html`
+  - [ ] Verify bundle injection works correctly for `dist/smartwallet.html`
 
 ### 5. Run & Observe - User Executes Build Commands
 **The user will run these commands to test changes:**
@@ -106,7 +106,7 @@
 - **Development Server**: `npm run dev` or `npm run tunnel-dev` (Cloudflare Tunnel + Vite with HTTPS)
 - **Quick Build**: `npm run mini-build` (Fast build for testing)
 - **Full Build**: `npm run build` (Creates IIFE bundle)
-- **Injection Test**: `npm run inject` (Injects bundle into `src/smartwallet.html` from `src/smartwallet-dev.html`)
+- **Injection Test**: `npm run inject` (Injects bundle into `dist/smartwallet.html` from `src/smartwallet-dev.html`)
 
 **IMPORTANT**: Agents should NOT run development servers (`npm run dev`, `npm run tunnel-dev`) or build commands. The user will execute these commands when ready to test.
 
@@ -133,16 +133,16 @@
 
 #### Build System Tests
 1. **Bundle Creation**: Verify `dist/sui-sdk-bundle.iife.js` is created
-2. **HTML Injection**: Confirm bundle is properly injected into `src/smartwallet.html`
-3. **SmartWallet Output**: Diff `src/smartwallet-dev.html` vs generated `src/smartwallet.html` to ensure expected sections are injected and no manual edits were lost
+2. **HTML Injection**: Confirm bundle is properly injected into `dist/smartwallet.html`
+3. **SmartWallet Output**: Diff `src/smartwallet-dev.html` vs generated `dist/smartwallet.html` to ensure expected sections are injected and no manual edits were lost
 4. **Browser Loading**: Test that `window.SuiSDK` is available globally
 5. **SDK Methods**: Verify all expected methods are accessible
 
 #### Integration Tests
 1. **Development Server**: Test HMR functionality with `npm run dev`
 2. **Tunnel Access**: Verify public URL access with `npm run tunnel-dev`
-3. **SmartWallet Preview**: Load `src/smartwallet-dev.html` via the dev server to validate roster interactions, modal flows, and SmartWallet-specific scripts before injection.
-4. **Production Build**: Test final generated `src/smartwallet.html` in multiple browsers
+3. **SmartWallet Preview**: Load `src/smartwallet-dev.html` via the dev server to validate roster interactions, modal flows, and SmartWallet-specific scripts before injection. After build, test `dist/smartwallet.html`.
+4. **Production Build**: Test final generated `dist/smartwallet.html` in multiple browsers
 
 ### 7. Environment Details - Development Setup
 **Required environment for Galactic development:**

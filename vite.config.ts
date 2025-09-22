@@ -3,27 +3,21 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   build: {
     lib: {
-      entry: process.env.BUILD_TARGET === 'extended'
-        ? './src/index-extended.ts'
-        : process.env.BUILD_TARGET === 'minimal'
+      entry: process.env.BUILD_TARGET === 'minimal'
         ? './src/index-minimal.ts'
         : process.env.BUILD_TARGET === 'zklogin'
         ? './src/zklogin-helpers.ts'
-        : './src/index.ts',
-      name: process.env.BUILD_TARGET === 'extended'
-        ? 'SuiSDKExtended'
-        : process.env.BUILD_TARGET === 'minimal'
+        : './src/index-minimal.ts', // Default to minimal
+      name: process.env.BUILD_TARGET === 'minimal'
         ? 'SuiSDKMinimal'
         : process.env.BUILD_TARGET === 'zklogin'
         ? 'SuiSDKZkLoginHelpers'
-        : 'SuiSDKCore',
-      fileName: process.env.BUILD_TARGET === 'extended'
-        ? 'sui-sdk-extended'
-        : process.env.BUILD_TARGET === 'minimal'
+        : 'SuiSDKMinimal', // Default to minimal
+      fileName: process.env.BUILD_TARGET === 'minimal'
         ? 'sui-sdk-minimal'
         : process.env.BUILD_TARGET === 'zklogin'
         ? 'zklogin-helpers'
-        : 'sui-sdk-core',
+        : 'sui-sdk-minimal', // Default to minimal
       formats: ['iife'],
     },
     minify: true,
@@ -37,9 +31,7 @@ export default defineConfig({
         manualPureFunctions: ['console.log'],
       },
     },
-    outDir: process.env.BUILD_TARGET === 'extended'
-      ? 'dist-temp-extended'
-      : process.env.BUILD_TARGET === 'minimal'
+    outDir: process.env.BUILD_TARGET === 'minimal'
       ? 'dist-temp-minimal'
       : process.env.BUILD_TARGET === 'zklogin'
       ? 'dist-temp-zklogin'
@@ -49,6 +41,11 @@ export default defineConfig({
     host: true, // Listen on all interfaces
     port: 5173,
     strictPort: true,
+    // Serve circuit files from root directory
+    fs: {
+      allow: ['..'], // Allow serving files from parent directory
+    },
+
     // Ensure Vite HMR works behind Cloudflare Tunnel on custom domain
     ...(process.env.GALACTIC_DEV_HOST ? {
       hmr: {
