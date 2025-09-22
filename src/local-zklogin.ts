@@ -1,12 +1,7 @@
-import {
-  generateNonce,
-  generateRandomness,
-  genAddressSeed,
-  decodeJwt,
-  jwtToAddress,
-  toZkLoginPublicIdentifier
-} from '@mysten/sui/zklogin';
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+// Basic zkLogin functions are now available in main bundle at window.SuiSDK.ZkLogin
+// Only import what's actually used internally for proof generation
+import { generateNonce, generateRandomness, genAddressSeed } from '@mysten/sui/zklogin';
+import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { groth16 } from 'snarkjs';
 
 export interface LocalZkLoginAssets {
@@ -89,31 +84,30 @@ export class LocalZkLoginProver {
     try {
       // Load the verification key from the downloaded file
       // Use relative path from src/ to root directory
-      const vkeyResponse = await fetch('../zkLogin-main.vkey');
+      const vkeyResponse = await fetch('/verification_key.json');
       if (!vkeyResponse.ok) {
         throw new Error(`Failed to load verification key: ${vkeyResponse.status}`);
       }
       this.verificationKey = await vkeyResponse.json();
 
       // Check if circuit files are available for real proving
-      try {
-        const provingKeyResponse = await fetch('../zkLogin-main.zkey');
-        if (provingKeyResponse.ok) {
-          console.log('✅ zkLogin-main.zkey found - real proving available');
-          this.ready = true;
-          return;
-        }
-      } catch (error) {
-        console.warn('zkLogin-main.zkey not found:', error);
+      const zkeyResponse = await fetch('/zklogin.zkey');
+      const wasmResponse = await fetch('/zklogin.wasm');
+
+      if (!zkeyResponse.ok) {
+        throw new Error(`Failed to load proving key: ${zkeyResponse.status}. Please ensure zklogin.zkey is in public/ directory.`);
       }
 
-      // Fallback to mock mode for development
-      console.warn('Local zkLogin prover: Circuit files not available, using mock mode');
+      if (!wasmResponse.ok) {
+        throw new Error(`Failed to load WASM circuit: ${wasmResponse.status}. Please ensure zklogin.wasm is in public/ directory.`);
+      }
+
+      console.log('✅ Circuit files found - real proving available');
       this.ready = true;
 
     } catch (error) {
-      console.warn('Local zkLogin prover: Failed to load circuits, using mock mode:', error);
-      this.ready = true; // Still mark as ready for mock mode
+      console.error('Failed to initialize zkLogin prover:', error);
+      throw error; // Don't fallback to mock mode, fail properly
     }
   }
 
@@ -158,9 +152,9 @@ export class LocalZkLoginProver {
       // Generate nonce using ephemeral public key if provided
       if (!nonce) {
         if (ephemeralPublicKeyBytes) {
-          const ephemeralKeypair = Ed25519Keypair.fromPublicKey(ephemeralPublicKeyBytes);
+          const ephemeralPublicKey = new Ed25519PublicKey(ephemeralPublicKeyBytes);
           nonce = generateNonce(
-            ephemeralKeypair.getPublicKey(),
+            ephemeralPublicKey,
             maxEpoch,
             randomness,
           );
@@ -456,13 +450,11 @@ export const LocalZkLogin = {
   createProver(assets: LocalZkLoginAssets = {}): LocalZkLoginProver {
     return new LocalZkLoginProver(assets);
   },
-  generateRandomness,
-  generateNonce,
-  genAddressSeed,
-  decodeJwt,
-  jwtToAddress,
-  toZkLoginPublicIdentifier,
+  // Note: Basic zkLogin functions (generateRandomness, generateNonce, genAddressSeed,
+  // decodeJwt, jwtToAddress, toZkLoginPublicIdentifier) are now available in
+  // window.SuiSDK.ZkLogin from the main bundle. LocalZkLogin focuses on proof generation.
   Ed25519Keypair,
+  Ed25519PublicKey,
   demo: demoLocalZkLogin,
 };
 

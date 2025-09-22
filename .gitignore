@@ -32,3 +32,9 @@ PERFORMANCE_OPTIMIZATIONS.md
 build/
 Docs/
 package-lock.json
+
+# Circuit build artifacts (large files, can be regenerated)
+circuits/build/
+circuits/*.r1cs
+circuits/*.sym
+circuits/*.ptau

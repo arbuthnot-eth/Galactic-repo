@@ -12,8 +12,12 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run build:minimal && npm run build:zklogin && npm run inject",
+    "build:full": "npm run build:minimal && npm run build:zklogin && npm run build:circuit && npm run inject",
     "build:minimal": "BUILD_TARGET=minimal vite build && mv dist-temp-minimal/sui-sdk-minimal.iife.js dist/ && rm -rf dist-temp-minimal",
     "build:zklogin": "BUILD_TARGET=zklogin vite build && mv dist-temp-zklogin/zklogin-helpers.iife.js dist/ && rm -rf dist-temp-zklogin",
+    "build:circuit": "npm run circuit:compile && npm run circuit:setup",
+    "circuit:compile": "cd circuits && circom2 zklogin.circom --r1cs --wasm -o build",
+    "circuit:setup": "cd circuits && snarkjs powersoftau new bn128 13 build/pot13_0000.ptau -v && echo 'galactic-zklogin-entropy-$(date +%s)' | snarkjs powersoftau contribute build/pot13_0000.ptau build/pot13_0001.ptau --name='Galactic zkLogin' -v && snarkjs powersoftau prepare phase2 build/pot13_0001.ptau build/pot13_final.ptau -v && snarkjs groth16 setup zklogin.r1cs build/pot13_final.ptau build/zklogin_0000.zkey && snarkjs zkey export verificationkey build/zklogin_0000.zkey build/verification_key.json && cp build/zklogin_js/zklogin.wasm ../public/ && cp build/zklogin_0000.zkey ../public/zklogin.zkey && cp build/verification_key.json ../public/",
     "mini-build": "npm run build:minimal && npm run build:zklogin && npm run inject",
     "inject": "node build-inject.js",
     "tunnel-dev": "bash scripts/tunnel-dev.sh",
@@ -23,7 +27,6 @@
   "dependencies": {
     "@mysten/bcs": "^1.7.0",
     "@mysten/dapp-kit": "^0.17.7",
-    "@mysten/enoki": "^0.12.0",
     "@mysten/graphql-transport": "^0.3.9",
     "@mysten/kiosk": "^0.12.26",
     "@mysten/seal": "^0.5.2",
@@ -32,7 +35,9 @@
     "@mysten/wallet-standard": "^0.16.14",
     "@mysten/walrus": "^0.6.7",
     "@mysten/zksend": "^0.13.24",
-    "@scure/bip39": "2.0.0"
+    "@scure/bip39": "2.0.0",
+    "circomlib": "^2.0.5",
+    "poseidon-lite": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

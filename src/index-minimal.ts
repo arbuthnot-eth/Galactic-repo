@@ -2,14 +2,23 @@
 // Analysis: Only these specific functions are called in smartwallet-dev.html
 
 // Sui - import only the specific functions we actually use
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { getFullnodeUrl } from '@mysten/sui/client';
 import { SuiClient } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
 
-// ZkLogin - only the 2 functions actually used
-import { getExtendedEphemeralPublicKey, getZkLoginSignature } from '@mysten/sui/zklogin';
+// ZkLogin - functions used for zkLogin authentication
+import {
+  getExtendedEphemeralPublicKey,
+  getZkLoginSignature,
+  generateNonce,
+  generateRandomness,
+  jwtToAddress,
+  genAddressSeed,
+  decodeJwt,
+  toZkLoginPublicIdentifier
+} from '@mysten/sui/zklogin';
 
 // BCS - only fromBase64 (bcs object not used directly)
 import { fromBase64 } from '@mysten/bcs';
@@ -23,9 +32,13 @@ import { getWallets } from '@mysten/wallet-standard';
 // Local zkLogin helper (mock/prover utilities)
 import LocalZkLogin from './local-zklogin';
 
+// Poseidon hash function for zkLogin
+import { poseidon1 } from 'poseidon-lite/poseidon1';
+
 // Minimal Sui object with only used functions
 const Sui = {
   Ed25519Keypair,
+  Ed25519PublicKey,
   getFullnodeUrl,
   SuiClient,
   Transaction,
@@ -45,6 +58,13 @@ const BCS = {
 const ZkLogin = {
   getExtendedEphemeralPublicKey,
   getZkLoginSignature,
+  generateNonce,
+  generateRandomness,
+  jwtToAddress,
+  genAddressSeed,
+  decodeJwt,
+  toZkLoginPublicIdentifier,
+  poseidon1,
 };
 
 // Minimal SuiNS object
@@ -87,4 +107,7 @@ window.SuiSDK = {
   WalletStandard,
   LocalZkLogin,
 };
+
+// Also expose poseidon1 directly on window for easy access
+(window as any).poseidon1 = poseidon1;
 

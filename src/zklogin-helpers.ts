@@ -14,6 +14,12 @@ import {
   generateRandomness,
 } from '@mysten/sui/zklogin';
 
+// Import circom WebAssembly runtime support
+import { WitnessCalculatorBuilder, createCircomRuntimeImports } from './circom-runtime';
+
+// Import Poseidon hash function
+import { poseidon1 } from 'poseidon-lite/poseidon1';
+
 // Use type assertion instead of interface declaration to avoid conflicts
 
 const globalTarget = typeof window !== 'undefined' ? window : (globalThis as any);
@@ -34,6 +40,16 @@ if (globalTarget && !(globalTarget as any).__zkLoginHelpersLoaded__) {
     generateNonce,
     generateRandomness,
   };
+
+  // Attach circom runtime support to global context
+  globalTarget.WitnessCalculatorBuilder = WitnessCalculatorBuilder;
+  globalTarget.createCircomRuntimeImports = createCircomRuntimeImports;
+
+  // Attach Poseidon hash function
+  globalTarget.poseidon1 = poseidon1;
+  sdk.poseidon1 = poseidon1;
+
+  // Note: snarkjs is attached by circom-runtime.ts import
 
   globalTarget.SuiSDK = sdk;
   globalTarget.__zkLoginHelpersLoaded__ = true;
