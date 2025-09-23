@@ -35,10 +35,9 @@ class WitnessCalculator {
   }
 
   async calculateWTNSBin(input: Record<string, any>, sanityCheck: number = 0): Promise<Uint8Array> {
-    // Implementation would depend on the specific circom circuit
-    // For now, return a mock witness for development
-    const witnessLength = (this.n64 || 32) * 8;
-    return new Uint8Array(witnessLength);
+    // This method should be implemented based on the specific circom circuit requirements
+    // The implementation depends on the circuit's witness calculation logic
+    throw new Error('calculateWTNSBin not implemented: Witness calculation requires circuit-specific implementation');
   }
 }
 
@@ -51,13 +50,13 @@ function createCircomRuntimeImports(): WebAssembly.Imports {
         throw new Error(`WebAssembly error: ${code} at ${ptr}:${len}`);
       },
 
-      // Logging functions
+      // Logging functions (no-op for production)
       print: function(ptr: number, len: number) {
-        console.log(`WebAssembly print: ${ptr}:${len}`);
+        // Silent in production
       },
 
       printErrorMessage: function() {
-        console.error('WebAssembly error occurred');
+        // Silent in production
       },
 
       // Exception handling
@@ -72,45 +71,43 @@ function createCircomRuntimeImports(): WebAssembly.Imports {
 
       // Memory management functions that circom might expect
       abort: function(msg: number, file: number, line: number, column: number) {
-        console.error(`WebAssembly abort: ${msg} at ${file}:${line}:${column}`);
-        throw new Error(`WebAssembly execution aborted`);
+        throw new Error(`WebAssembly execution aborted at ${file}:${line}:${column}`);
       },
 
-      // Buffer and message writing functions
+      // Buffer and message writing functions (no-op for production)
       writeBufferMessage: function() {
-        console.log('WebAssembly writeBufferMessage called');
+        // Silent in production
       },
 
       writeErrorMessage: function() {
-        console.error('WebAssembly writeErrorMessage called');
+        // Silent in production
       },
 
       // Memory management
       memset: function(ptr: number, value: number, size: number) {
-        // Mock memset for circom WASM
         return ptr;
       },
 
-      // Shared memory functions
+      // Shared memory functions (no-op for production)
       showSharedRWMemory: function() {
-        console.log('WebAssembly showSharedRWMemory called');
+        // Silent in production
       },
 
-      // Additional debugging/logging functions that circom might expect
+      // Additional debugging/logging functions that circom might expect (no-op)
       logSetSignal: function() {
-        // Mock function for circom debugging
+        // Silent in production
       },
 
       logGetSignal: function() {
-        // Mock function for circom debugging
+        // Silent in production
       },
 
       logFinishComponent: function() {
-        // Mock function for circom debugging
+        // Silent in production
       },
 
       logStartComponent: function() {
-        // Mock function for circom debugging
+        // Silent in production
       },
 
       // Additional runtime functions that might be needed
@@ -136,7 +133,6 @@ async function WitnessCalculatorBuilder(wasmCode: ArrayBuffer, options: WitnessC
     // Create and return the witness calculator
     return new WitnessCalculator(instance, options);
   } catch (error) {
-    console.error('Failed to create WitnessCalculator:', error);
     throw error;
   }
 }

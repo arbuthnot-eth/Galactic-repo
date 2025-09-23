@@ -98,7 +98,7 @@ try {
     const inlineLoader = createInlineLoader(bundleToUse, { label: `${file.name} ${bundleName}` });
     let bundleReplacement = inlineLoader;
 
-    // For SmartWallet, only load minimal bundle - extended features on demand only
+    // For SmartWallet, use tiered loading - shell bundle with progressive enhancement
     if (file.name === 'SmartWallet') {
       // Read the passkey icon and convert to base64
       const passkeyIconPath = path.join(__dirname, 'assets', 'passkey-low.webp');

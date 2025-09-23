@@ -16,7 +16,7 @@
 - **CRITICAL Build Workflow**:
   - **ONLY EDIT `src/smartwallet-dev.html`** - This is the primary development template for SmartWallet functionality. It must stay in sync with the roster-driven UX and is the source of truth for SmartWallet markup and scripting.
   - **NEVER EDIT `dist/smartwallet.html`** - This file is auto-generated from `src/smartwallet-dev.html` by the HTML injector during `npm run inject` and `npm run build`.
-  - Build process: `npm run build` compiles TypeScript and injects the `dist/sui-sdk-minimal.iife.js` bundle into `dist/smartwallet.html` (via the injector pipeline).
+  - Build process: `npm run build` compiles TypeScript and injects tiered SDK bundles (`shell`, `core`, `transaction`, `advanced`) into `dist/smartwallet.html` (via the injector pipeline).
 
 - **Technology Stack**
   - TypeScript, ESNext with 2-space indentation, semicolons, and single quotes

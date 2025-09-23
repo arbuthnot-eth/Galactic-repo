@@ -144,12 +144,10 @@ export class LocalZkLoginProver {
         throw new Error(`Failed to load WASM circuit: ${wasmResponse.status}. Please ensure zklogin.wasm is in public/ directory.`);
       }
 
-      console.log('✅ Circuit files found - real proving available');
       this.ready = true;
 
     } catch (error) {
-      console.error('Failed to initialize zkLogin prover:', error);
-      throw error; // Don't fallback to mock mode, fail properly
+      throw error; // Fail properly without fallback
     }
   }
 
@@ -182,13 +180,11 @@ export class LocalZkLoginProver {
       // Fetch current epoch from Sui blockchain
       let actualCurrentEpoch = currentEpoch;
       if (!actualCurrentEpoch) {
-        console.log('🌐 Fetching current epoch from Sui blockchain...');
         actualCurrentEpoch = await this.fetchCurrentEpochFromSui();
       }
 
       // Compute maxEpoch properly: currentEpoch + 1 (fixed buffer)
       const maxEpoch = BigInt(Number(actualCurrentEpoch) + 1);
-      console.log(`📅 Computed maxEpoch: current ${actualCurrentEpoch} + 1 = ${maxEpoch}`);
       // Decode JWT to get payload
       const [headerBase64, payloadBase64] = jwt.split('.');
       if (!headerBase64 || !payloadBase64) {
@@ -326,11 +322,9 @@ export class LocalZkLoginProver {
       }
 
       const currentEpoch = BigInt(result.result.epoch);
-      console.log(`✅ Fetched current epoch from Sui: ${currentEpoch}`);
       return currentEpoch;
 
     } catch (error) {
-      console.error('Failed to fetch current epoch from Sui:', error);
       throw new Error(`Unable to fetch current epoch from Sui blockchain: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -385,20 +379,12 @@ export class LocalZkLoginProver {
         address
       });
 
-      console.log('✅ zklogin.zkey loaded - real proving available');
-      console.log('✅ zklogin.wasm loaded - real proving enabled');
-      console.log('Circuit inputs prepared:', Object.keys(inputs));
-      console.log('🔍 FULL CIRCUIT INPUTS:', JSON.stringify(inputs, null, 2));
-
       // Generate real cryptographic proof using snarkjs
       const { proof, publicSignals } = await groth16.fullProve(
         inputs,
         wasm,
         provingKey
       );
-
-      console.log('✅ Real zkLogin proof generated with cryptography');
-      console.log('Public signals:', publicSignals);
 
       // Convert proof format to match expected interface
       const proofPoints = {
@@ -412,8 +398,7 @@ export class LocalZkLoginProver {
       };
 
     } catch (error) {
-      console.error('Real zkLogin proof generation failed:', error);
-      throw error; // <-- propagate the error instead of swallowing it
+      throw error;
     }
   }
 
@@ -449,7 +434,6 @@ export class LocalZkLoginProver {
 
     // Convert sub, iss, aud, nonce to field elements
     const subField = this.stringToField(sub);
-    console.log('🔍 DEBUG: Real iss value from JWT:', iss);
 
     // Production: Exact string matching for issuer validation
     const VALID_GOOGLE_ISSUER = 'https://accounts.google.com';
@@ -463,24 +447,12 @@ export class LocalZkLoginProver {
     // But expectedIssuerHash.out = Poseidon([64311811759419326176236258789247439964197])
     const EXPECTED_ISS_PRECOMPUTED = BigInt('64311811759419326176236258789247439964197');
     const issField = poseidon1([EXPECTED_ISS_PRECOMPUTED]);
-    console.log('🔍 DEBUG: Circuit-expected iss field (Poseidon of precomputed):', issField.toString());
     const audField = this.stringToField(aud);
     const nonceField = this.stringToField(nonce);
 
     // Compute addressHash to match circuit's addressSeed computation
     // The circuit computes: addressSeed = Poseidon([sub, salt, iss, aud])
     const addressHash = poseidon4([subField, saltField, issField, audField]).toString();
-    console.log('🔍 DEBUG: Computed addressHash matching circuit addressSeed:', addressHash);
-
-    console.log('Preparing zkLogin circuit inputs:', {
-      addressHash: addressHash,
-      subField: subField.toString(),
-      issField: issField.toString(), // Hash of exact issuer string
-      audField: audField.toString(),
-      nonceField: nonceField.toString(),
-      saltField: saltField.toString(),
-      maxEpoch: maxEpoch.toString()
-    });
 
     const rawInputs = {
       // JWT components (arrays) - match circuit signal declarations

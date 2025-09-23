@@ -1,5 +1,8 @@
 // src/index-advanced.ts - Advanced SDK tier for zkLogin and optional features
-// Contains zkLogin functionality and other advanced features
+// Contains zkLogin functionality, keypair generation, and other advanced features
+
+// Keypair functionality (moved from transaction tier for zkLogin)
+import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 
 // ZkLogin functionality
 import {
@@ -36,33 +39,16 @@ const AdvancedLocalZkLogin = LocalZkLogin;
 
 // Update the global SDK with advanced functionality
 if (window.SuiSDK) {
-  console.log('🔧 Before replacing zkLogin object:', {
-    zkLoginObject: typeof window.SuiSDK.ZkLogin,
-    zkLoginKeys: Object.keys(window.SuiSDK.ZkLogin || {}),
-    advancedZkLoginKeys: Object.keys(AdvancedZkLogin)
-  });
+  // Add keypair functionality to Sui namespace
+  window.SuiSDK.Sui.Ed25519Keypair = Ed25519Keypair;
+  window.SuiSDK.Sui.Ed25519PublicKey = Ed25519PublicKey;
 
-  // Completely replace the ZkLogin object to ensure clean state
+  // Replace the ZkLogin object with full functionality
   window.SuiSDK.ZkLogin = AdvancedZkLogin;
   window.SuiSDK.LocalZkLogin = AdvancedLocalZkLogin;
-
-  console.log('✅ zkLogin functions completely replaced:', {
-    zkLoginObject: typeof window.SuiSDK.ZkLogin,
-    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin.getExtendedEphemeralPublicKey,
-    generateNonce: typeof window.SuiSDK.ZkLogin.generateNonce,
-    generateRandomness: typeof window.SuiSDK.ZkLogin.generateRandomness,
-    jwtToAddress: typeof window.SuiSDK.ZkLogin.jwtToAddress,
-    decodeJwt: typeof window.SuiSDK.ZkLogin.decodeJwt,
-    actualFunctions: {
-      getExtendedEphemeralPublicKey: AdvancedZkLogin.getExtendedEphemeralPublicKey?.name,
-      generateNonce: AdvancedZkLogin.generateNonce?.name
-    }
-  });
 } else {
-  console.error('SuiSDK not found - advanced tier cannot load without core tier');
+  throw new Error('SuiSDK not found - advanced tier cannot load without core tier');
 }
 
 // Also expose poseidon1 directly on window for easy access
 (window as any).poseidon1 = poseidon1;
-
-console.log('📦 Advanced SDK tier loaded - zkLogin and advanced features ready');

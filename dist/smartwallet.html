@@ -223,13 +223,13 @@
       }
     </script>
     <script>
-        // Minimal dev bootstrap: ensure global and try to load IIFE bundle when developing.
+        // Shell dev bootstrap: ensure global and try to load IIFE bundle when developing.
         window.process={env:{NODE_ENV:'development'}};window.global=window.globalThis||window;
         (function ensureDevSdk(){
             if (window.SuiSDK) return; // Already injected (e.g., in production build)
             try {
                 const s=document.createElement('script');
-                s.src='/dist/sui-sdk-minimal.iife.js';
+                s.src='/dist/sui-sdk-shell.iife.js';
                 s.async=false;
                 s.onload=function(){console.log('Dev SDK bundle loaded');};
                 s.onerror=function(){console.warn('Dev SDK bundle not found. Run "npm run build" or serve dist/.');};

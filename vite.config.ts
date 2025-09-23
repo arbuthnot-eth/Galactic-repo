@@ -3,9 +3,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   build: {
     lib: {
-      entry: process.env.BUILD_TARGET === 'minimal'
-        ? './src/index-minimal.ts'
-        : process.env.BUILD_TARGET === 'zklogin'
+      entry: process.env.BUILD_TARGET === 'zklogin'
         ? './src/zklogin-helpers.ts'
         : process.env.BUILD_TARGET === 'shell'
         ? './src/index-shell.js'
@@ -16,9 +14,7 @@ export default defineConfig({
         : process.env.BUILD_TARGET === 'advanced'
         ? './src/index-advanced.ts'
         : './src/index-shell.js', // Default to shell
-      name: process.env.BUILD_TARGET === 'minimal'
-        ? 'SuiSDKMinimal'
-        : process.env.BUILD_TARGET === 'zklogin'
+      name: process.env.BUILD_TARGET === 'zklogin'
         ? 'SuiSDKZkLoginHelpers'
         : process.env.BUILD_TARGET === 'shell'
         ? 'SuiSDKShell'
@@ -29,9 +25,7 @@ export default defineConfig({
         : process.env.BUILD_TARGET === 'advanced'
         ? 'SuiSDKAdvanced'
         : 'SuiSDKShell', // Default to shell
-      fileName: process.env.BUILD_TARGET === 'minimal'
-        ? 'sui-sdk-minimal'
-        : process.env.BUILD_TARGET === 'zklogin'
+      fileName: process.env.BUILD_TARGET === 'zklogin'
         ? 'zklogin-helpers'
         : process.env.BUILD_TARGET === 'shell'
         ? 'sui-sdk-shell'
@@ -56,9 +50,7 @@ export default defineConfig({
         manualPureFunctions: ['console.log'],
       },
     },
-    outDir: process.env.BUILD_TARGET === 'minimal'
-      ? 'dist-temp-minimal'
-      : process.env.BUILD_TARGET === 'zklogin'
+    outDir: process.env.BUILD_TARGET === 'zklogin'
       ? 'dist-temp-zklogin'
       : process.env.BUILD_TARGET === 'shell'
       ? 'dist-temp-shell'
