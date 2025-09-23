@@ -97,14 +97,16 @@
 - **Implementation Checklist**:
   - [ ] Update `src/index.ts` for new SDK exports
   - [ ] Update HTML templates if needed (`src/smartwallet-dev.html`; never touch generated outputs)
-  - [ ] Test build process with `npm run build`
+  - [ ] Test circuit build with `npm run circuit-build` (for zkLogin changes)
+  - [ ] Test build process with `npm run fast-build`
   - [ ] Verify bundle injection works correctly for `dist/smartwallet.html`
 
 ### 5. Run & Observe - User Executes Build Commands
 **The user will run these commands to test changes:**
 
+- **Circuit Build**: `npm run circuit-build` (Rebuild zkLogin circuit after circuit changes)
+- **Fast Build**: `npm run fast-build` (Quick tiered build for testing)
 - **Development Server**: `npm run dev` or `npm run tunnel-dev` (Cloudflare Tunnel + Vite with HTTPS)
-- **Quick Build**: `npm run mini-build` (Fast build for testing)
 - **Full Build**: `npm run build` (Creates IIFE bundle)
 - **Injection Test**: `npm run inject` (Injects bundle into `dist/smartwallet.html` from `src/smartwallet-dev.html`)
 
@@ -168,11 +170,12 @@ git status
 # Agent applies HTML/template changes only in src/smartwallet-dev.html
 
 # 5. User Testing (User performs)
-npm run mini-build  # Quick build for testing
+npm run circuit-build  # Rebuild circuit if zkLogin changes made
+npm run fast-build     # Quick tiered build for testing
 # OR
-npm run build      # Full build
+npm run build         # Full build
 # OR
-npm run dev        # Development server
+npm run dev           # Development server
 
 # 6. Detailed Testing (User performs)
 # User tests wallet creation, transaction signing

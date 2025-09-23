@@ -872,6 +872,7 @@
                             addressSeed: finalAddressSeed,
                             maxEpoch: BigInt(pendingZkLoginContext.maxEpoch),
                             randomness: pendingZkLoginContext.randomness,
+                            address: suiAddress, // Pass the Sui address for correct address_hash computation
                             ephemeralPublicKeyBytes: (() => {
                                 const pubKey = pendingZkLoginContext.ephemeralKeyPair.getPublicKey();
                                 // Try different methods to get bytes
