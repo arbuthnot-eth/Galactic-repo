@@ -169,33 +169,18 @@ export class LocalZkLoginProver {
         }
       }
 
-      // Generate zkLogin proof data
-      // Try real proving first (filesystem-based), fallback to mock
-      let proofData;
-      try {
-        proofData = await this.generateRealZkLoginProof({
-          jwt,
-          salt,
-          addressSeed,
-          maxEpoch,
-          randomness: randomnessBigInt,
-          nonce,
-          payloadJson,
-          address
-        });
-      } catch (error) {
-        console.warn('Real proving failed, falling back to mock:', error);
-        proofData = await this.generateZkLoginProofData({
-          jwt,
-          salt,
-          addressSeed,
-          maxEpoch,
-          randomness: randomnessBigInt,
-          nonce,
-          payloadJson,
-          address
-        });
-      }
+      // Generate zkLogin proof data - real proof only
+      // Let any error bubble up – the UI will display it and the developer can act.
+      const proofData = await this.generateRealZkLoginProof({
+        jwt,
+        salt,
+        addressSeed,
+        maxEpoch,
+        randomness: randomnessBigInt,
+        nonce,
+        payloadJson,
+        address
+      });
 
       const durationMs = performance.now() - start;
 
@@ -251,85 +236,7 @@ export class LocalZkLoginProver {
       .slice(0, 40);
   }
 
-  private async generateZkLoginProofData({
-    jwt,
-    salt,
-    addressSeed,
-    maxEpoch,
-    randomness,
-    nonce,
-    payloadJson,
-    address
-  }: {
-    jwt: string;
-    salt: Uint8Array;
-    addressSeed: bigint;
-    maxEpoch: bigint;
-    randomness: bigint;
-    nonce: string;
-    payloadJson: any;
-    address?: string;
-  }): Promise<{ proofPoints: any }> {
-    // Generate realistic zkLogin proof points based on the actual specification
-    const seed = genAddressSeed(
-      BigInt('0x' + Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('')),
-      'sub',
-      payloadJson.sub,
-      payloadJson.aud || ''
-    );
 
-    // Create deterministic proof points based on the inputs
-    const inputHash = this.hashZkLoginInputs({
-      sub: payloadJson.sub,
-      iss: payloadJson.iss,
-      aud: payloadJson.aud || '',
-      addressSeed: addressSeed.toString(),
-      maxEpoch: maxEpoch.toString(),
-      nonce,
-      randomness: randomness.toString()
-    });
-
-    const proofPoints = {
-      a: [
-        this.fieldElementFromHash(inputHash, 0),
-        this.fieldElementFromHash(inputHash, 1)
-      ],
-      b: [
-        [this.fieldElementFromHash(inputHash, 2), this.fieldElementFromHash(inputHash, 3)],
-        [this.fieldElementFromHash(inputHash, 4), this.fieldElementFromHash(inputHash, 5)]
-      ],
-      c: [
-        this.fieldElementFromHash(inputHash, 6),
-        this.fieldElementFromHash(inputHash, 7)
-      ]
-    };
-
-    // Simulate proof generation time
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    return { proofPoints };
-  }
-
-  private hashZkLoginInputs(inputs: Record<string, string>): string {
-    const input = JSON.stringify(inputs);
-    const encoder = new TextEncoder();
-    const data = encoder.encode(input);
-
-    // Simple hash for deterministic proof generation
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-      hash = ((hash << 5) - hash) + data[i];
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-
-    return Math.abs(hash).toString(16).padStart(64, '0');
-  }
-
-  private fieldElementFromHash(hash: string, index: number): string {
-    // Generate field elements deterministically from hash
-    const hashPart = hash.slice(index * 8, (index + 1) * 8).padStart(8, '0');
-    return '0x' + hashPart;
-  }
 
   private stringToField(input: string): bigint {
     // Convert string to field element using a simple hash
@@ -419,17 +326,7 @@ export class LocalZkLoginProver {
 
     } catch (error) {
       console.error('Real zkLogin proof generation failed:', error);
-      // Fallback to mock proof generation
-      return this.generateZkLoginProofData({
-        jwt,
-        salt,
-        addressSeed,
-        maxEpoch,
-        randomness,
-        nonce,
-        payloadJson,
-        address
-      });
+      throw error; // <-- propagate the error instead of swallowing it
     }
   }
 
@@ -511,24 +408,24 @@ export class LocalZkLoginProver {
     });
 
     return {
-      // JWT components (arrays) - simplified for now
+      // JWT components (arrays) - match circuit signal declarations
       jwtHeaderHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
       jwtPayloadHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
       jwtSignature: Array(64).fill('0'), // Would be actual RSA signature
       googleModulus: Array(64).fill('0'), // Would be Google's RSA modulus
-      googleExponent: ['65537'], // Google's RSA exponent
+      googleExponent: '65537', // Single field element
 
-      // Single field element inputs
-      sub: [subField.toString()],
-      iss: [issField.toString()], // Hash of the exact issuer string
-      aud: [audField.toString()],
-      nonce: [nonceField.toString()],
-      salt: [saltField.toString()],
+      // Single field element inputs - match circuit signal declarations
+      sub: subField.toString(),
+      iss: issField.toString(), // Hash of the exact issuer string
+      aud: audField.toString(),
+      nonce: nonceField.toString(),
+      salt: saltField.toString(),
 
-      // zkLogin specific inputs
-      address_hash: [addressHash], // Provide as array to match circuit expectation
-      maxEpoch: [maxEpoch.toString()],
-      currentEpoch: ['1000'] // Would be dynamic
+      // zkLogin specific inputs - single field elements as per circuit
+      address_hash: addressHash, // Single field element, not array
+      maxEpoch: maxEpoch.toString(),
+      currentEpoch: '1000' // Would be dynamic
     };
   }
 }

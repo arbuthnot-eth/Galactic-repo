@@ -59,4 +59,25 @@ if (globalTarget && !(globalTarget as any).__zkLoginHelpersLoaded__) {
   }
 }
 
+// -------------------------------------------------------------------------
+//  ZkLogin proof generation – **real proof only**
+// -------------------------------------------------------------------------
+//
+// The library used to catch any error from the real prover and replace it with a
+// pre‑computed mock proof.  That behaviour masked genuine circuit‑/input‑issues
+// (like the `address_hash` shape bug) and made debugging impossible.
+//
+// We now expose a single `generateZkLoginProof` function that *always* attempts
+// the real proof generation and propagates any exception to the caller.
+//
+
+import { LocalZkLogin, LocalZkLoginProofContext } from './local-zklogin';
+
+export async function generateZkLoginProof(context: LocalZkLoginProofContext) {
+  // Let any error bubble up – the UI will display it and the developer can act.
+  const prover = LocalZkLogin.createProver();
+  await prover.init();
+  return await prover.prove(context);
+}
+
 export {};
