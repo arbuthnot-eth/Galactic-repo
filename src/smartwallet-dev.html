@@ -59,36 +59,7 @@
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
         
-        /* Loading screen styles */
-        .app-loading {
-            text-align: center;
-            margin-top: 50px;
-            color: #c3d5e8;
-        }
-        .loading-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(69, 139, 189, 0.3);
-            border-radius: 50%;
-            border-top-color: #458BBD;
-            animation: spin 1s ease-in-out infinite;
-            margin-left: 10px;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* Loading screen transitions - very fast fade */
-        #loading-screen {
-            transition: opacity 0.1s ease-out;
-        }
-        
-        /* Hide main content until loaded */
-        .main-content {
-            opacity: 0;
-            transition: opacity 0.2s ease-out;
-        }
+        /* Main content shows immediately */
         .main-content.loaded {
             opacity: 1;
         }
@@ -1119,39 +1090,29 @@
                 logOutput(`⏳ Waiting for ${description} to finish loading...`);
             }
 
+            const startTime = Date.now();
+            let loaded = false;
+
             if (tier === 'core' && !window.SuiSDK.Sui.SuiClient) {
-                logOutput(`🔄 Loading ${description}...`);
                 await window.SuiSDK.loadCore();
+                loaded = true;
             } else if (tier === 'transaction' && (
                 !window.SuiSDK.Sui.Ed25519Keypair ||
                 typeof window.SuiSDK.Sui.Ed25519Keypair.generate !== 'function'
             )) {
-                logOutput(`🔄 Loading ${description}...`);
-                console.log('Before loading transaction:', {
-                    Ed25519Keypair: typeof window.SuiSDK.Sui.Ed25519Keypair,
-                    generate: typeof window.SuiSDK.Sui.Ed25519Keypair?.generate
-                });
                 await window.SuiSDK.loadTransaction();
-                console.log('After loading transaction:', {
-                    Ed25519Keypair: typeof window.SuiSDK.Sui.Ed25519Keypair,
-                    generate: typeof window.SuiSDK.Sui.Ed25519Keypair?.generate
-                });
+                loaded = true;
             } else if (tier === 'advanced' && (
                 typeof window.SuiSDK.ZkLogin?.generateNonce !== 'function' ||
                 typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey !== 'function'
             )) {
-                logOutput(`🔄 Loading ${description}...`);
-                console.log('Before loading advanced:', {
-                    zkLoginObject: typeof window.SuiSDK.ZkLogin,
-                    generateNonce: typeof window.SuiSDK.ZkLogin?.generateNonce,
-                    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey
-                });
                 await window.SuiSDK.loadAdvanced();
-                console.log('After loading advanced:', {
-                    zkLoginObject: typeof window.SuiSDK.ZkLogin,
-                    generateNonce: typeof window.SuiSDK.ZkLogin?.generateNonce,
-                    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey
-                });
+                loaded = true;
+            }
+
+            if (loaded) {
+                const duration = Date.now() - startTime;
+                logOutput(`✅ ${description} loaded in ${duration}ms`);
             }
         }
 
@@ -1162,10 +1123,11 @@
 
                 // Ensure zkLogin helpers are loaded (should already be loaded in background)
                 if (!window.__zkLoginHelpersLoaded__) {
-                    logOutput('🔄 Loading zkLogin helpers...');
+                    const startTime = Date.now();
                     try {
                         await window.loadZkLoginHelpers();
-                        logOutput('✅ zkLogin helpers loaded successfully');
+                        const duration = Date.now() - startTime;
+                        logOutput(`✅ zkLogin helpers loaded in ${duration}ms`);
                     } catch (error) {
                         logOutput('❌ Failed to load zkLogin helpers: ' + error.message);
                         return;
@@ -1611,6 +1573,10 @@
             const runBootstrap = async () => {
                 try {
                     await ensureSdkReady();
+                    // Preload advanced tier for zkLogin after basic connection is ready
+                    ensureSDKTier('advanced', 'zkLogin support').catch(err =>
+                        console.warn('Advanced tier preload failed:', err.message)
+                    );
                 } catch (error) {
                     logOutput('Failed to initialize SDK: ' + error.message, true);
                     return;
@@ -2846,35 +2812,17 @@
 
         // App initialization
         function initializeApp() {
-            const loadingScreen = document.getElementById('loading-screen');
-            const mainContent = document.getElementById('main-content');
-
             updateWalletConnectionControls(false);
 
-            if (mainContent) {
-                mainContent.style.display = 'block';
-            }
-
-            requestAnimationFrame(() => {
-                if (loadingScreen) {
-                    loadingScreen.style.opacity = '0';
-                    setTimeout(() => {
-                        loadingScreen.style.display = 'none';
-                    }, 150);
+            // Show all sections immediately (except operations which stays collapsed)
+            const allSections = document.querySelectorAll('.section');
+            const operationsSection = document.getElementById('smartWalletOperations');
+            allSections.forEach(section => {
+                if (operationsSection && section === operationsSection) {
+                    return;
                 }
-
-                const allSections = document.querySelectorAll('.section');
-                const operationsSection = document.getElementById('smartWalletOperations');
-                allSections.forEach(section => {
-                    if (operationsSection && section === operationsSection) {
-                        return;
-                    }
-                    section.style.display = 'block';
-                    section.classList.add('visible');
-                });
-                if (mainContent) {
-                    mainContent.classList.add('loaded');
-                }
+                section.style.display = 'block';
+                section.classList.add('visible');
             });
 
             try {
@@ -3057,17 +3005,8 @@
     </script>
 </head>
 <body>
-    <!-- Loading screen -->
-    <div class="container" id="loading-screen">
-        <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
-        <div class="app-loading">
-            <p>Loading wallet interface...</p>
-            <div class="loading-spinner"></div>
-        </div>
-    </div>
-
-    <!-- Main content -->
-    <div class="container main-content" id="main-content">
+    <!-- Main content (show immediately) -->
+    <div class="container main-content loaded" id="main-content">
         <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
         <p style="text-align: center; color: #c3d5e8; font-size: 16px; margin-top: -10px; margin-bottom: 30px;">
             Galactic Wallet Interface

@@ -59,36 +59,7 @@
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
         
-        /* Loading screen styles */
-        .app-loading {
-            text-align: center;
-            margin-top: 50px;
-            color: #c3d5e8;
-        }
-        .loading-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(69, 139, 189, 0.3);
-            border-radius: 50%;
-            border-top-color: #458BBD;
-            animation: spin 1s ease-in-out infinite;
-            margin-left: 10px;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* Loading screen transitions - very fast fade */
-        #loading-screen {
-            transition: opacity 0.1s ease-out;
-        }
-        
-        /* Hide main content until loaded */
-        .main-content {
-            opacity: 0;
-            transition: opacity 0.2s ease-out;
-        }
+        /* Main content shows immediately */
         .main-content.loaded {
             opacity: 1;
         }
@@ -227,7 +198,7 @@
         .zklogin-provider-name { font-weight: 500; }
     </style>
     
-    <script>(function(){  try {    const bundleBase64 = 'KGZ1bmN0aW9uKCl7InVzZSBzdHJpY3QiO2NvbnN0IGU9e0VkMjU1MTlLZXlwYWlyOm51bGwsRWQyNTUxOVB1YmxpY0tleTpudWxsLGdldEZ1bGxub2RlVXJsOm51bGwsU3VpQ2xpZW50Om51bGwsVHJhbnNhY3Rpb246bnVsbCxub3JtYWxpemVTdWlBZGRyZXNzOm51bGwsVHJhbnNhY3Rpb25CbG9jazpudWxsLFN1aW5zQ2xpZW50Om51bGx9LGk9e2Zyb21CYXNlNjQ6bnVsbH0sZD17fSxzPXtTdWluc0NsaWVudDpudWxsfSx0PXtnZXRXYWxsZXRzOm51bGx9LGM9e30sbD17Y29yZTpudWxsLHRyYW5zYWN0aW9uOm51bGwsYWR2YW5jZWQ6bnVsbH07ZnVuY3Rpb24gbyhuLHUpe3JldHVybiBmdW5jdGlvbigpe3JldHVybiBsW25dfHwobFtuXT1uZXcgUHJvbWlzZSgocixTKT0+e3dpbmRvdy5TdWlTREsuX2xvYWRpbmdbbl09ITA7Y29uc3QgYT1kb2N1bWVudC5jcmVhdGVFbGVtZW50KCJzY3JpcHQiKTthLnNyYz11LGEub25sb2FkPSgpPT57d2luZG93LlN1aVNESy5fbG9hZGluZ1tuXT0hMSxyKCl9LGEub25lcnJvcj0oKT0+e3dpbmRvdy5TdWlTREsuX2xvYWRpbmdbbl09ITEsUyhuZXcgRXJyb3IoYEZhaWxlZCB0byBsb2FkICR7bn0gU0RLIHRpZXJgKSl9LGRvY3VtZW50LmhlYWQuYXBwZW5kQ2hpbGQoYSl9KSksbFtuXX19d2luZG93LlN1aVNESz17U3VpOmUsQkNTOmksWmtMb2dpbjpkLFN1aU5TOnMsV2FsbGV0U3RhbmRhcmQ6dCxMb2NhbFprTG9naW46YyxfbG9hZGluZzp7Y29yZTohMSx0cmFuc2FjdGlvbjohMSxhZHZhbmNlZDohMX0sbG9hZENvcmU6bygiY29yZSIsIi9kaXN0L3N1aS1zZGstY29yZS5paWZlLmpzIiksbG9hZFRyYW5zYWN0aW9uOm8oInRyYW5zYWN0aW9uIiwiL2Rpc3Qvc3VpLXNkay10cmFuc2FjdGlvbi5paWZlLmpzIiksbG9hZEFkdmFuY2VkOm8oImFkdmFuY2VkIiwiL2Rpc3Qvc3VpLXNkay1hZHZhbmNlZC5paWZlLmpzIil9LHNldFRpbWVvdXQoKCk9Pnt3aW5kb3cuU3VpU0RLLmxvYWRDb3JlKCkuY2F0Y2gobj0+Y29uc29sZS53YXJuKCJDb3JlIFNESyBsb2FkaW5nIGZhaWxlZDoiLG4ubWVzc2FnZSkpfSwxMDApLHNldFRpbWVvdXQoKCk9Pnt3aW5kb3cuU3VpU0RLLmxvYWRUcmFuc2FjdGlvbigpLmNhdGNoKG49PmNvbnNvbGUud2FybigiVHJhbnNhY3Rpb24gU0RLIGxvYWRpbmcgZmFpbGVkOiIsbi5tZXNzYWdlKSl9LDIwMCksc2V0VGltZW91dCgoKT0+e3dpbmRvdy5TdWlTREsubG9hZEFkdmFuY2VkKCkuY2F0Y2gobj0+Y29uc29sZS53YXJuKCJBZHZhbmNlZCBTREsgbG9hZGluZyBmYWlsZWQ6IixuLm1lc3NhZ2UpKX0sMzAwKX0pKCk7Cg==';    const decode = typeof globalThis.atob === 'function'      ? (value) => globalThis.atob(value)      : (value) => {          if (globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {            return globalThis.Buffer.from(value, 'base64').toString('utf8');          }          throw new Error('Base64 decoder unavailable in this environment');        };    const execute = new Function(decode(bundleBase64));    execute();  } catch (error) {    console.error('Failed to execute inline SmartWallet shell bundle:', error);  }}())</script>
+    <script>(function(){  try {    const bundleBase64 = 'KGZ1bmN0aW9uKCl7InVzZSBzdHJpY3QiO2NvbnN0IGw9e2NvcmU6bnVsbCx0cmFuc2FjdGlvbjpudWxsLGFkdmFuY2VkOm51bGx9O2Z1bmN0aW9uIGkobixvKXtyZXR1cm4gZnVuY3Rpb24oKXtyZXR1cm4gbFtuXXx8KGxbbl09bmV3IFByb21pc2UoKGUsZCk9Pnt3aW5kb3cuU3VpU0RLLl9sb2FkaW5nW25dPSEwO2NvbnN0IGE9ZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgic2NyaXB0Iik7YS5zcmM9byxhLm9ubG9hZD0oKT0+e3dpbmRvdy5TdWlTREsuX2xvYWRpbmdbbl09ITEsZSgpfSxhLm9uZXJyb3I9KCk9Pnt3aW5kb3cuU3VpU0RLLl9sb2FkaW5nW25dPSExLGQobmV3IEVycm9yKGBGYWlsZWQgdG8gbG9hZCAke259IFNESyB0aWVyYCkpfSxkb2N1bWVudC5oZWFkLmFwcGVuZENoaWxkKGEpfSkpLGxbbl19fXdpbmRvdy5TdWlTREs9e1N1aTp7RWQyNTUxOUtleXBhaXI6bnVsbCxFZDI1NTE5UHVibGljS2V5Om51bGwsZ2V0RnVsbG5vZGVVcmw6bnVsbCxTdWlDbGllbnQ6bnVsbCxUcmFuc2FjdGlvbjpudWxsLG5vcm1hbGl6ZVN1aUFkZHJlc3M6bnVsbCxUcmFuc2FjdGlvbkJsb2NrOm51bGwsU3VpbnNDbGllbnQ6bnVsbH0sQkNTOntmcm9tQmFzZTY0Om51bGx9LFprTG9naW46e30sU3VpTlM6e1N1aW5zQ2xpZW50Om51bGx9LFdhbGxldFN0YW5kYXJkOntnZXRXYWxsZXRzOm51bGx9LExvY2FsWmtMb2dpbjp7fSxfbG9hZGluZzp7Y29yZTohMSx0cmFuc2FjdGlvbjohMSxhZHZhbmNlZDohMX0sbG9hZENvcmU6aSgiY29yZSIsIi9kaXN0L3N1aS1zZGstY29yZS5paWZlLmpzIiksbG9hZFRyYW5zYWN0aW9uOmkoInRyYW5zYWN0aW9uIiwiL2Rpc3Qvc3VpLXNkay10cmFuc2FjdGlvbi5paWZlLmpzIiksbG9hZEFkdmFuY2VkOmkoImFkdmFuY2VkIiwiL2Rpc3Qvc3VpLXNkay1hZHZhbmNlZC5paWZlLmpzIil9fSkoKTsK';    const decode = typeof globalThis.atob === 'function'      ? (value) => globalThis.atob(value)      : (value) => {          if (globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {            return globalThis.Buffer.from(value, 'base64').toString('utf8');          }          throw new Error('Base64 decoder unavailable in this environment');        };    const execute = new Function(decode(bundleBase64));    execute();  } catch (error) {    console.error('Failed to execute inline SmartWallet shell bundle:', error);  }}())</script>
     <script>
       // SmartWallet performance optimization: Using shell bundle
       console.log('SmartWallet: shell SDK loaded. Progressive enhancement starting...');
@@ -1142,39 +1113,29 @@
                 logOutput(`⏳ Waiting for ${description} to finish loading...`);
             }
 
+            const startTime = Date.now();
+            let loaded = false;
+
             if (tier === 'core' && !window.SuiSDK.Sui.SuiClient) {
-                logOutput(`🔄 Loading ${description}...`);
                 await window.SuiSDK.loadCore();
+                loaded = true;
             } else if (tier === 'transaction' && (
                 !window.SuiSDK.Sui.Ed25519Keypair ||
                 typeof window.SuiSDK.Sui.Ed25519Keypair.generate !== 'function'
             )) {
-                logOutput(`🔄 Loading ${description}...`);
-                console.log('Before loading transaction:', {
-                    Ed25519Keypair: typeof window.SuiSDK.Sui.Ed25519Keypair,
-                    generate: typeof window.SuiSDK.Sui.Ed25519Keypair?.generate
-                });
                 await window.SuiSDK.loadTransaction();
-                console.log('After loading transaction:', {
-                    Ed25519Keypair: typeof window.SuiSDK.Sui.Ed25519Keypair,
-                    generate: typeof window.SuiSDK.Sui.Ed25519Keypair?.generate
-                });
+                loaded = true;
             } else if (tier === 'advanced' && (
                 typeof window.SuiSDK.ZkLogin?.generateNonce !== 'function' ||
                 typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey !== 'function'
             )) {
-                logOutput(`🔄 Loading ${description}...`);
-                console.log('Before loading advanced:', {
-                    zkLoginObject: typeof window.SuiSDK.ZkLogin,
-                    generateNonce: typeof window.SuiSDK.ZkLogin?.generateNonce,
-                    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey
-                });
                 await window.SuiSDK.loadAdvanced();
-                console.log('After loading advanced:', {
-                    zkLoginObject: typeof window.SuiSDK.ZkLogin,
-                    generateNonce: typeof window.SuiSDK.ZkLogin?.generateNonce,
-                    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey
-                });
+                loaded = true;
+            }
+
+            if (loaded) {
+                const duration = Date.now() - startTime;
+                logOutput(`✅ ${description} loaded in ${duration}ms`);
             }
         }
 
@@ -1185,10 +1146,11 @@
 
                 // Ensure zkLogin helpers are loaded (should already be loaded in background)
                 if (!window.__zkLoginHelpersLoaded__) {
-                    logOutput('🔄 Loading zkLogin helpers...');
+                    const startTime = Date.now();
                     try {
                         await window.loadZkLoginHelpers();
-                        logOutput('✅ zkLogin helpers loaded successfully');
+                        const duration = Date.now() - startTime;
+                        logOutput(`✅ zkLogin helpers loaded in ${duration}ms`);
                     } catch (error) {
                         logOutput('❌ Failed to load zkLogin helpers: ' + error.message);
                         return;
@@ -1634,6 +1596,10 @@
             const runBootstrap = async () => {
                 try {
                     await ensureSdkReady();
+                    // Preload advanced tier for zkLogin after basic connection is ready
+                    ensureSDKTier('advanced', 'zkLogin support').catch(err =>
+                        console.warn('Advanced tier preload failed:', err.message)
+                    );
                 } catch (error) {
                     logOutput('Failed to initialize SDK: ' + error.message, true);
                     return;
@@ -2869,35 +2835,17 @@
 
         // App initialization
         function initializeApp() {
-            const loadingScreen = document.getElementById('loading-screen');
-            const mainContent = document.getElementById('main-content');
-
             updateWalletConnectionControls(false);
 
-            if (mainContent) {
-                mainContent.style.display = 'block';
-            }
-
-            requestAnimationFrame(() => {
-                if (loadingScreen) {
-                    loadingScreen.style.opacity = '0';
-                    setTimeout(() => {
-                        loadingScreen.style.display = 'none';
-                    }, 150);
+            // Show all sections immediately (except operations which stays collapsed)
+            const allSections = document.querySelectorAll('.section');
+            const operationsSection = document.getElementById('smartWalletOperations');
+            allSections.forEach(section => {
+                if (operationsSection && section === operationsSection) {
+                    return;
                 }
-
-                const allSections = document.querySelectorAll('.section');
-                const operationsSection = document.getElementById('smartWalletOperations');
-                allSections.forEach(section => {
-                    if (operationsSection && section === operationsSection) {
-                        return;
-                    }
-                    section.style.display = 'block';
-                    section.classList.add('visible');
-                });
-                if (mainContent) {
-                    mainContent.classList.add('loaded');
-                }
+                section.style.display = 'block';
+                section.classList.add('visible');
             });
 
             try {
@@ -3080,17 +3028,8 @@
     </script>
 </head>
 <body>
-    <!-- Loading screen -->
-    <div class="container" id="loading-screen">
-        <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
-        <div class="app-loading">
-            <p>Loading wallet interface...</p>
-            <div class="loading-spinner"></div>
-        </div>
-    </div>
-
-    <!-- Main content -->
-    <div class="container main-content" id="main-content">
+    <!-- Main content (show immediately) -->
+    <div class="container main-content loaded" id="main-content">
         <h1><span class="sw-icon" aria-hidden="true"></span> Galactic</h1>
         <p style="text-align: center; color: #c3d5e8; font-size: 16px; margin-top: -10px; margin-bottom: 30px;">
             Galactic Wallet Interface

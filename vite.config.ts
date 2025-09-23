@@ -8,14 +8,14 @@ export default defineConfig({
         : process.env.BUILD_TARGET === 'zklogin'
         ? './src/zklogin-helpers.ts'
         : process.env.BUILD_TARGET === 'shell'
-        ? './src/index-shell.ts'
+        ? './src/index-shell.js'
         : process.env.BUILD_TARGET === 'core'
         ? './src/index-core.ts'
         : process.env.BUILD_TARGET === 'transaction'
         ? './src/index-transaction.ts'
         : process.env.BUILD_TARGET === 'advanced'
         ? './src/index-advanced.ts'
-        : './src/index-shell.ts', // Default to shell
+        : './src/index-shell.js', // Default to shell
       name: process.env.BUILD_TARGET === 'minimal'
         ? 'SuiSDKMinimal'
         : process.env.BUILD_TARGET === 'zklogin'
