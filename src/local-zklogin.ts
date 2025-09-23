@@ -6,6 +6,30 @@ import { groth16 } from 'snarkjs';
 import { poseidon1 } from 'poseidon-lite/poseidon1';
 import { buildZkLoginInputs } from './zklogin-helpers';
 
+/**
+ * Compute the zkLogin address hash expected by the circuit.
+ *
+ *   addressHash = Poseidon( [addressBigInt, saltBigInt] )
+ *
+ * Both arguments are converted to `bigint` first.  The result is a single
+ * field element (bigint) that we turn into a decimal string – exactly the
+ * format the circuit wants.
+ */
+export function computeAddressHash(suiAddress: string, salt: string): string {
+  // 1️⃣ Ensure the address has 0x prefix for BigInt conversion
+  const addressWithPrefix = suiAddress.startsWith('0x') ? suiAddress : `0x${suiAddress}`;
+  const addressBigInt = BigInt(addressWithPrefix);
+
+  // 2️⃣ Salt is already a decimal string, turn it into a bigint
+  const saltBigInt = BigInt(salt);
+
+  // 3️⃣ Poseidon returns a single field element (bigint)
+  const hashBigInt = poseidon1([addressBigInt, saltBigInt]);
+
+  // 4️⃣ Return a **decimal** string (not hex!)
+  return hashBigInt.toString();
+}
+
 export interface LocalZkLoginAssets {
   wasmBase64?: string;
   provingKeyBase64?: string;
@@ -351,38 +375,31 @@ export class LocalZkLoginProver {
     nonce: string;
     salt: Uint8Array;
     address?: string | null;
-  }): Record<string, string | string[]> {
+  }) {
     // Prepare inputs according to the actual zkLogin circuit specification
     const BN254_FIELD_MODULUS = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
 
-    // Compute address hash correctly for zkLogin circuit
-    // If address is provided, compute hash from it; otherwise use addressSeed directly
+    // Convert salt to field element (use as decimal string for proper Poseidon computation)
+    let saltField = BigInt(0);
+    for (let i = 0; i < Math.min(salt.length, 32); i++) {
+      saltField = (saltField * BigInt(256)) + BigInt(salt[i]);
+    }
+    saltField = saltField % BN254_FIELD_MODULUS;
+    const saltString = saltField.toString();
+
+    // Compute address hash correctly for zkLogin circuit using the helper function
     let addressHash: string;
     console.log('🔍 DEBUG: Address hash computation - address provided:', address);
     if (address) {
-      // 1️⃣ Strip the 0x prefix, turn the hex string into a BigInt
-      const addressNo0x = address.replace(/^0x/, '');
-      const addressBigInt = BigInt('0x' + addressNo0x);
-
-      console.log('🔍 DEBUG: Computing Poseidon hash for address:', address, '-> BigInt:', addressBigInt.toString());
-      // 2️⃣ poseidon1 expects an array with a single element
-      //    This returns a BigInt that we convert to string for the circuit
-      const poseidonResult = poseidon1([addressBigInt]);
-      addressHash = poseidonResult.toString();
-      console.log('🔍 DEBUG: Poseidon result type:', typeof addressHash, 'value:', addressHash);
+      // Use the helper function to compute the correct Poseidon hash
+      addressHash = computeAddressHash(address, saltString);
+      console.log('🔍 DEBUG: Computed address hash using helper:', addressHash);
     } else {
       // Fallback: use addressSeed directly as field element
       const addressSeedBigInt = typeof addressSeed === 'string' ? BigInt(addressSeed) : addressSeed;
       addressHash = (addressSeedBigInt % BN254_FIELD_MODULUS).toString();
       console.log('🔍 DEBUG: Using fallback addressSeed computation:', addressHash);
     }
-
-    // Convert salt to field element
-    let saltField = BigInt(0);
-    for (let i = 0; i < Math.min(salt.length, 32); i++) {
-      saltField = (saltField * BigInt(256)) + BigInt(salt[i]);
-    }
-    saltField = saltField % BN254_FIELD_MODULUS;
 
     // Convert sub, iss, aud, nonce to field elements
     const subField = this.stringToField(sub);
@@ -423,10 +440,10 @@ export class LocalZkLoginProver {
       iss: issField.toString(), // Hash of the exact issuer string
       aud: audField.toString(),
       nonce: nonceField.toString(),
-      salt: saltField.toString(),
+      salt: saltString,
 
       // zkLogin specific inputs
-      address_hash: addressHash, // Single field element, will be converted to array
+      addressHash: addressHash, // Single field element for circuit
       maxEpoch: maxEpoch.toString(),
       currentEpoch: '1000' // Would be dynamic
     };
