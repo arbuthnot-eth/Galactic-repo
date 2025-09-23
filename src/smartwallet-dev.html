@@ -587,6 +587,7 @@
                 randomness,
                 nonce,
                 maxEpoch: String(maxEpoch),
+                currentEpoch: String(currentEpoch), // Store currentEpoch for consistent use during proof generation
                 extendedPublicKey,
                 provider: 'local',
                 expiresAt: null // Local generation doesn't have predefined expiration
@@ -816,6 +817,19 @@
                     // Generate fresh proof
                     logOutput('🔄 Generating fresh local zkLogin proof...');
                     try {
+                        // Validate epoch before attempting proof generation
+                        if (!suiClient) await initializeSuiClient();
+                        const epochInfo = await suiClient.getLatestSuiSystemState();
+                        const currentEpoch = epochInfo?.epoch ? parseInt(epochInfo.epoch) : 0;
+                        const maxEpoch = parseInt(pendingZkLoginContext.maxEpoch);
+
+                        if (currentEpoch >= maxEpoch) {
+                            logOutput(`❌ zkLogin proof expired: current epoch ${currentEpoch} >= maxEpoch ${maxEpoch}. Please reconnect.`);
+                            throw new Error(`zkLogin proof expired: current epoch ${currentEpoch} >= maxEpoch ${maxEpoch}. Please reconnect to generate a fresh proof.`);
+                        }
+
+                        logOutput(`✅ Epoch validation passed: current ${currentEpoch} < max ${maxEpoch}`);
+
                         const startTime = Date.now();
                         logOutput('🔧 Initializing zkLogin prover...');
                         const prover = window.SuiSDK.LocalZkLogin.createProver();
@@ -871,6 +885,7 @@
                             salt: saltBytes,
                             addressSeed: finalAddressSeed,
                             maxEpoch: BigInt(pendingZkLoginContext.maxEpoch),
+                            currentEpoch: BigInt(currentEpoch), // Pass validated current epoch
                             randomness: pendingZkLoginContext.randomness,
                             address: suiAddress, // Pass the Sui address for correct address_hash computation
                             ephemeralPublicKeyBytes: (() => {

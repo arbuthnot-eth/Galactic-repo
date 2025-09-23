@@ -13,7 +13,7 @@ if (typeof window !== 'undefined') {
 // ---------------------------------------------------------------------------
 // Helper that builds the exact JSON expected by the zkLogin circuit
 // ---------------------------------------------------------------------------
-export async function buildZkLoginInputs(raw: {
+export function buildZkLoginInputs(raw: {
   jwtHeaderHash: string[];
   jwtPayloadHash: string[];
   jwtSignature: string[];
@@ -25,8 +25,6 @@ export async function buildZkLoginInputs(raw: {
   nonce: string;
   salt: string;
   addressHash: string;          // ← single scalar field element (decimal string)
-  maxEpoch: string;
-  currentEpoch: string;
 }) {
   // The circuit expects a *single* addressHash field.
   // It must be a decimal string (or bigint‑toString()) – never an array.
@@ -45,8 +43,6 @@ export async function buildZkLoginInputs(raw: {
     nonce: raw.nonce,
     salt: raw.salt,
     addressHash,                 // ← camel‑case name, will be lower‑cased to address_hash
-    maxEpoch: raw.maxEpoch,
-    currentEpoch: raw.currentEpoch,
   };
 
   return inputs;
@@ -57,7 +53,7 @@ export async function buildZkLoginInputs(raw: {
 // ---------------------------------------------------------------------------
 export async function generateProof(rawInputs: any) {
   // 1️⃣ Build the exact input JSON
-  const inputs = await buildZkLoginInputs(rawInputs);
+  const inputs = buildZkLoginInputs(rawInputs);
 
   // 2️⃣ Load the compiled circuit files from the public folder
   const wasmBuffer = await fetch('/zklogin.wasm').then(r => r.arrayBuffer());

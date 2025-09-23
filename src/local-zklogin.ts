@@ -3,31 +3,45 @@
 import { generateNonce, generateRandomness } from '@mysten/sui/zklogin';
 import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { groth16 } from 'snarkjs';
-import { poseidon1 } from 'poseidon-lite/poseidon1';
+import { poseidon1, poseidon4 } from 'poseidon-lite';
 import { buildZkLoginInputs } from './zklogin-helpers';
 
 /**
  * Compute the zkLogin address hash expected by the circuit.
  *
- *   addressHash = Poseidon( [addressBigInt, saltBigInt] )
+ *   addressHash = Poseidon( [sub, salt, iss, aud] )
  *
- * Both arguments are converted to `bigint` first.  The result is a single
- * field element (bigint) that we turn into a decimal string – exactly the
- * format the circuit wants.
+ * This must match exactly how the circuit computes addressSeed to pass the constraint:
+ * addressHash === addressSeed (line 131 in circuit)
  */
-export function computeAddressHash(suiAddress: string, salt: string): string {
-  // 1️⃣ Ensure the address has 0x prefix for BigInt conversion
-  const addressWithPrefix = suiAddress.startsWith('0x') ? suiAddress : `0x${suiAddress}`;
-  const addressBigInt = BigInt(addressWithPrefix);
+export function computeAddressHash(sub: string, salt: string, iss: string, aud: string): string {
+  // 1️⃣ Convert sub to field element (same as circuit)
+  const subBigInt = stringToField(sub);
 
   // 2️⃣ Salt is already a decimal string, turn it into a bigint
   const saltBigInt = BigInt(salt);
 
-  // 3️⃣ Poseidon returns a single field element (bigint)
-  const hashBigInt = poseidon1([addressBigInt, saltBigInt]);
+  // 3️⃣ Convert iss and aud to field elements
+  const issBigInt = stringToField(iss);
+  const audBigInt = stringToField(aud);
 
-  // 4️⃣ Return a **decimal** string (not hex!)
+  // 4️⃣ Use poseidon4 with 4 inputs: sub, salt, iss, aud (exactly like circuit's addressSeed computation)
+  const hashBigInt = poseidon4([subBigInt, saltBigInt, issBigInt, audBigInt]);
+
+  // 5️⃣ Return a **decimal** string (not hex!)
   return hashBigInt.toString();
+}
+
+// Helper function to convert string to field element (copied from the class)
+function stringToField(input: string): bigint {
+  const BN254_FIELD_MODULUS = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
+
+  let hash = BigInt(0);
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * BigInt(31) + BigInt(input.charCodeAt(i))) % BN254_FIELD_MODULUS;
+  }
+
+  return hash;
 }
 
 export interface LocalZkLoginAssets {
@@ -47,7 +61,7 @@ export interface LocalZkLoginProofContext {
   jwt: string;
   salt: Uint8Array;
   addressSeed: bigint;
-  maxEpoch: bigint;
+  currentEpoch?: bigint; // Current epoch (will be fetched from blockchain if not provided)
   randomness?: string;
   nonce?: string;
   // Public key bytes for nonce generation (compressed form expected)
@@ -151,7 +165,7 @@ export class LocalZkLoginProver {
     jwt,
     salt,
     addressSeed,
-    maxEpoch,
+    currentEpoch,
     randomness: randomnessInput,
     nonce: nonceInput,
     ephemeralPublicKeyBytes,
@@ -165,6 +179,16 @@ export class LocalZkLoginProver {
     this.metrics.proofsAttempted += 1;
 
     try {
+      // Fetch current epoch from Sui blockchain
+      let actualCurrentEpoch = currentEpoch;
+      if (!actualCurrentEpoch) {
+        console.log('🌐 Fetching current epoch from Sui blockchain...');
+        actualCurrentEpoch = await this.fetchCurrentEpochFromSui();
+      }
+
+      // Compute maxEpoch properly: currentEpoch + 1 (fixed buffer)
+      const maxEpoch = BigInt(Number(actualCurrentEpoch) + 1);
+      console.log(`📅 Computed maxEpoch: current ${actualCurrentEpoch} + 1 = ${maxEpoch}`);
       // Decode JWT to get payload
       const [headerBase64, payloadBase64] = jwt.split('.');
       if (!headerBase64 || !payloadBase64) {
@@ -273,6 +297,42 @@ export class LocalZkLoginProver {
     }
 
     return hash;
+  }
+
+  private async fetchCurrentEpochFromSui(): Promise<bigint> {
+    try {
+      // Use Sui testnet RPC endpoint
+      const response = await fetch('https://fullnode.testnet.sui.io:443', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'suix_getLatestSuiSystemState',
+          params: []
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Sui RPC request failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.error) {
+        throw new Error(`Sui RPC error: ${result.error.message}`);
+      }
+
+      const currentEpoch = BigInt(result.result.epoch);
+      console.log(`✅ Fetched current epoch from Sui: ${currentEpoch}`);
+      return currentEpoch;
+
+    } catch (error) {
+      console.error('Failed to fetch current epoch from Sui:', error);
+      throw new Error(`Unable to fetch current epoch from Sui blockchain: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async generateRealZkLoginProof({
@@ -387,20 +447,6 @@ export class LocalZkLoginProver {
     saltField = saltField % BN254_FIELD_MODULUS;
     const saltString = saltField.toString();
 
-    // Compute address hash correctly for zkLogin circuit using the helper function
-    let addressHash: string;
-    console.log('🔍 DEBUG: Address hash computation - address provided:', address);
-    if (address) {
-      // Use the helper function to compute the correct Poseidon hash
-      addressHash = computeAddressHash(address, saltString);
-      console.log('🔍 DEBUG: Computed address hash using helper:', addressHash);
-    } else {
-      // Fallback: use addressSeed directly as field element
-      const addressSeedBigInt = typeof addressSeed === 'string' ? BigInt(addressSeed) : addressSeed;
-      addressHash = (addressSeedBigInt % BN254_FIELD_MODULUS).toString();
-      console.log('🔍 DEBUG: Using fallback addressSeed computation:', addressHash);
-    }
-
     // Convert sub, iss, aud, nonce to field elements
     const subField = this.stringToField(sub);
     console.log('🔍 DEBUG: Real iss value from JWT:', iss);
@@ -411,11 +457,20 @@ export class LocalZkLoginProver {
       throw new Error(`Invalid issuer: ${iss}. Expected: ${VALID_GOOGLE_ISSUER}`);
     }
 
-    // Convert the exact issuer string to field element using the same hash function
-    const issField = this.stringToField(iss);
-    console.log('🔍 DEBUG: Production iss field hash:', issField.toString());
+    // The circuit expects iss to be the pre-computed hash directly
+    // Circuit computes: expectedIssuerHash.inputs[0] <== 64311811759419326176236258789247439964197
+    // and then checks: iss === expectedIssuerHash.out
+    // But expectedIssuerHash.out = Poseidon([64311811759419326176236258789247439964197])
+    const EXPECTED_ISS_PRECOMPUTED = BigInt('64311811759419326176236258789247439964197');
+    const issField = poseidon1([EXPECTED_ISS_PRECOMPUTED]);
+    console.log('🔍 DEBUG: Circuit-expected iss field (Poseidon of precomputed):', issField.toString());
     const audField = this.stringToField(aud);
     const nonceField = this.stringToField(nonce);
+
+    // Compute addressHash to match circuit's addressSeed computation
+    // The circuit computes: addressSeed = Poseidon([sub, salt, iss, aud])
+    const addressHash = poseidon4([subField, saltField, issField, audField]).toString();
+    console.log('🔍 DEBUG: Computed addressHash matching circuit addressSeed:', addressHash);
 
     console.log('Preparing zkLogin circuit inputs:', {
       addressHash: addressHash,
@@ -443,9 +498,7 @@ export class LocalZkLoginProver {
       salt: saltString,
 
       // zkLogin specific inputs
-      addressHash: addressHash, // Single field element for circuit
-      maxEpoch: maxEpoch.toString(),
-      currentEpoch: '1000' // Would be dynamic
+      addressHash: addressHash // Single field element for circuit
     };
 
     // The circuit expects a single address_hash field; no limb conversion needed.
@@ -461,95 +514,6 @@ export const LocalZkLogin = {
   // window.SuiSDK.ZkLogin from the main bundle. LocalZkLogin focuses on proof generation.
   Ed25519Keypair,
   Ed25519PublicKey,
-  demo: demoLocalZkLogin,
 };
 
 export default LocalZkLogin;
-
-// Example usage:
-// ```typescript
-// import { LocalZkLogin } from './local-zklogin';
-//
-// // Create prover with embedded circuits
-// const prover = LocalZkLogin.createProver({
-//   wasmBase64: 'base64-encoded-wasm',
-//   provingKeyBase64: 'base64-encoded-zkey',
-//   verificationKey: verificationKeyJson
-// });
-//
-// await prover.init();
-//
-// // Generate proof
-// const result = await prover.prove({
-//   jwt: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9...',
-//   salt: new Uint8Array(32),
-//   addressSeed: BigInt('0x123...'),
-//   maxEpoch: BigInt(1000),
-//   randomness: generateRandomness(),
-//   ephemeralPublicKeyBytes: ephemeralKeypair.getPublicKey().toRawBytes()
-// });
-//
-// console.log('Proof generated:', result.signatureInputs.proofPoints);
-// ```
-
-// To test the LocalZkLogin prover:
-// ```typescript
-// import { LocalZkLogin } from './local-zklogin';
-//
-// // Run the demo
-// LocalZkLogin.demo().then(result => {
-//   console.log('Demo completed:', result);
-// }).catch(error => {
-//   console.error('Demo failed:', error);
-// });
-//
-// // Or create custom prover
-// const prover = LocalZkLogin.createProver();
-// await prover.init();
-// const result = await prover.prove({...});
-// ```
-
-// Demo function for testing the LocalZkLogin prover
-export async function demoLocalZkLogin() {
-  console.log('🚀 Starting LocalZkLogin Demo');
-
-  // Create a prover instance (will use mock mode since no WASM provided)
-  const prover = LocalZkLogin.createProver();
-  await prover.init();
-
-  console.log('✅ Prover initialized:', prover.isReady);
-
-  // Mock JWT for testing
-  const mockJWT = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0LXVzZXItMTIzIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoieW91ci1jbGllbnQtaWQuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwiaWF0IjoxNjk4NzY1NjAwLCJleHAiOjE2OTg3NjkxMDB9.mock-signature';
-
-  // Mock inputs
-  const salt = new Uint8Array(32).fill(1);
-  const addressSeed = BigInt('0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef');
-  const maxEpoch = BigInt(1000);
-
-  try {
-    const result = await prover.prove({
-      jwt: mockJWT,
-      salt,
-      addressSeed,
-      maxEpoch,
-      randomness: generateRandomness()
-    });
-
-    console.log('✅ Proof generated successfully!');
-    console.log('Duration:', result.durationMs, 'ms');
-    console.log('Nonce:', result.nonce);
-    console.log('Proof points:', JSON.stringify(result.signatureInputs.proofPoints, null, 2));
-
-    return result;
-  } catch (error) {
-    console.error('❌ Proof generation failed:', error);
-    throw error;
-  }
-}
-
-// To test the LocalZkLogin prover:
-// 1. Build the project: npm run build:minimal
-// 2. Open dist/sui-sdk-minimal.iife.js in browser
-// 3. Run: window.SuiSDK.LocalZkLogin.demo()
-// 4. Or create custom prover: window.SuiSDK.LocalZkLogin.createProver()
