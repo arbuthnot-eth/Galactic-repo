@@ -548,6 +548,10 @@
         }
 
         async function prepareZkLoginContext() {
+            // Ensure all required SDK tiers are loaded
+            await ensureSDKTier('transaction', 'keypair generation');
+            await ensureSDKTier('advanced', 'zkLogin support');
+
             if (!window.SuiSDK || !window.SuiSDK.ZkLogin || !window.SuiSDK.Sui) {
                 throw new Error('Sui SDK not loaded');
             }
@@ -557,7 +561,15 @@
             const { Ed25519Keypair } = window.SuiSDK.Sui;
             const { getExtendedEphemeralPublicKey, generateRandomness, generateNonce } = window.SuiSDK.ZkLogin;
 
+            // Validate keypair generation capability
+            if (!Ed25519Keypair || typeof Ed25519Keypair.generate !== 'function') {
+                throw new Error('Ed25519Keypair.generate is not available - transaction tier may not be loaded');
+            }
+
             const ephemeralKeyPair = Ed25519Keypair.generate();
+            if (!ephemeralKeyPair) {
+                throw new Error('Failed to generate ephemeral keypair');
+            }
             const extendedPublicKey = getExtendedEphemeralPublicKey(ephemeralKeyPair.getPublicKey());
 
             // Generate local randomness and nonce
@@ -620,9 +632,14 @@
                 window.addEventListener('message', messageHandler);
 
                 checkClosed = setInterval(() => {
-                    if (popup.closed) {
-                        cleanup();
-                        reject(new Error('OAuth popup was closed by user'));
+                    try {
+                        if (popup.closed) {
+                            cleanup();
+                            reject(new Error('OAuth popup was closed by user'));
+                        }
+                    } catch (error) {
+                        // Cross-origin policy blocks popup.closed access - ignore silently
+                        // The popup will still work via the message handler
                     }
                 }, 800);
             });
@@ -712,8 +729,9 @@
                 validateZkLoginJwt(decodedJwt, pendingZkLoginContext.nonce, ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID);
 
                 // Use local proof generation instead of Enoki
-                const claimName = ZKLOGIN_CONFIG.KEY_CLAIM_NAME || 'sub';
-                const claimValue = decodedJwt[claimName] ?? decodedJwt.sub;
+                // Note: zkLogin requires fixed 'sub' claim for addressSeed generation
+                const claimName = 'sub'; // Must be 'sub' for circuit compatibility
+                const claimValue = decodedJwt.sub; // Use sub directly for addressSeed
 
                 // Generate user-specific salt deterministically from sub claim
                 const userSub = decodedJwt.sub;
@@ -728,63 +746,13 @@
                 const computedAddress = window.SuiSDK.ZkLogin.jwtToAddress(jwt, salt, false);
                 const suiAddress = computedAddress;
 
-                let addressSeed = window.SuiSDK.ZkLogin.genAddressSeed(salt, claimName, claimValue, decodedJwt.aud);
+                let addressSeed = window.SuiSDK.ZkLogin.genAddressSeed(salt, 'sub', decodedJwt.sub, decodedJwt.aud);
                 let publicIdentifier = window.SuiSDK.ZkLogin.toZkLoginPublicIdentifier(addressSeed, decodedJwt.iss, { legacyAddress: false });
 
-                let signatureInputs = null;
                 const signatureMaxEpoch = pendingZkLoginContext.maxEpoch;
-                let proverDetails = null;
 
-                // Generate local zkLogin proof
-                logOutput('🔄 Generating local zkLogin proof...');
-                try {
-                    const prover = window.SuiSDK.LocalZkLogin.createProver();
-                    await prover.init();
-
-                    // Convert salt BigInt to Uint8Array
-                    const saltBytes = new Uint8Array(32);
-                    const saltHex = salt.toString(16).padStart(64, '0');
-                    for (let i = 0; i < 32; i++) {
-                        saltBytes[i] = parseInt(saltHex.substr(i * 2, 2), 16);
-                    }
-
-                    const proofResult = await prover.prove({
-                        jwt,
-                        salt: saltBytes,
-                        addressSeed: addressSeed,
-                        maxEpoch: BigInt(pendingZkLoginContext.maxEpoch),
-                        randomness: pendingZkLoginContext.randomness,
-                        ephemeralPublicKeyBytes: (() => {
-                            const pubKey = pendingZkLoginContext.ephemeralKeyPair.getPublicKey();
-                            // Try different methods to get bytes
-                            if (typeof pubKey.toRawBytes === 'function') {
-                                return pubKey.toRawBytes();
-                            } else if (typeof pubKey.toBytes === 'function') {
-                                return pubKey.toBytes();
-                            } else if (typeof pubKey.toSuiBytes === 'function') {
-                                return pubKey.toSuiBytes();
-                            } else {
-                                // Fallback: try to convert from base64
-                                const base64 = pubKey.toBase64();
-                                return new Uint8Array(atob(base64).split('').map(char => char.charCodeAt(0)));
-                            }
-                        })()
-                    });
-
-                    signatureInputs = proofResult.signatureInputs;
-                    proverDetails = {
-                        provider: 'local',
-                        receivedAt: Date.now(),
-                        durationMs: proofResult.durationMs
-                    };
-
-                    logOutput(`✅ Local proof generated in ${proofResult.durationMs}ms`);
-                } catch (proverError) {
-                    logOutput(`⚠️ Local proof generation failed: ${proverError.message}`);
-                    logOutput('📍 Wallet will be read-only without proof generation capability.');
-                    // Continue without proof for read-only functionality
-                }
-
+                // First establish wallet connection without proof
+                logOutput('🔗 Connecting zkLogin wallet...');
                 currentWallet = {
                     address: suiAddress,
                     type: 'zkLogin',
@@ -802,40 +770,186 @@
                         ephemeralPublicKey: pendingZkLoginContext.extendedPublicKey,
                         connectedAt: Date.now(),
                         expiresAt: pendingZkLoginContext.expiresAt || null,
-                        signatureInputs,
-                        prover: proverDetails,
+                        signatureInputs: null, // Will be set after proof generation
+                        prover: null, // Will be set after proof generation
                         ephemeralKeypair: pendingZkLoginContext.ephemeralKeyPair || null,
-                        canSign: Boolean(signatureInputs)
+                        canSign: false // Will be set to true after successful proof generation
                     }
                 };
                 connectedWalletStandard = null;
-
                 showCurrentWalletAddress(suiAddress);
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
                 document.getElementById('walletType').textContent = `zkLogin (${currentWallet.provider})`;
+                logOutput(`🎉 zkLogin connected as ${suiAddress}`);
+                await getWalletBalance();
 
+                // Now generate the zkLogin proof after wallet connection is established
+                // First check if we have a valid cached proof for this specific JWT and epoch
+                let signatureInputs = null;
+                let proverDetails = null;
+                const cachedSession = sessionStorage.getItem('galactic:zkLogin');
+                if (cachedSession) {
+                    try {
+                        const sessionData = JSON.parse(cachedSession);
+                        // Check if cached proof matches current JWT, address, and is still valid for epoch
+                        if (sessionData.address === suiAddress &&
+                            sessionData.jwt === jwt &&
+                            sessionData.signatureInputs &&
+                            sessionData.maxEpoch >= signatureMaxEpoch &&
+                            sessionData.salt === salt.toString()) {
+                            // Reuse cached proof - exact match for this JWT
+                            signatureInputs = sessionData.signatureInputs;
+                            proverDetails = sessionData.prover;
+                            currentWallet.zkLogin.signatureInputs = signatureInputs;
+                            currentWallet.zkLogin.prover = proverDetails;
+                            currentWallet.zkLogin.canSign = true;
+                            logOutput('✅ Using cached zkLogin proof from session storage');
+                            logOutput(`🔏 Local zkLogin proof valid until epoch ${signatureMaxEpoch || '(unknown)'}.`);
+                        }
+                    } catch (parseError) {
+                        // Invalid cached data, continue with fresh generation
+                    }
+                }
+
+                if (!signatureInputs) {
+                    // Generate fresh proof
+                    logOutput('🔄 Generating fresh local zkLogin proof...');
+                    try {
+                        const startTime = Date.now();
+                        logOutput('🔧 Initializing zkLogin prover...');
+                        const prover = window.SuiSDK.LocalZkLogin.createProver();
+                        await prover.init();
+                        logOutput('🔧 Prover initialized, starting proof generation...');
+
+                        // Convert salt BigInt to Uint8Array
+                        const saltBytes = new Uint8Array(32);
+                        const saltHex = salt.toString(16).padStart(64, '0');
+                        for (let i = 0; i < 32; i++) {
+                            saltBytes[i] = parseInt(saltHex.substr(i * 2, 2), 16);
+                        }
+
+                        logOutput('🔧 Calling prover.prove() with parameters...');
+                        // Debug all circuit inputs before passing to prover
+                        console.log('Debug circuit inputs:', {
+                            jwt: {
+                                type: typeof jwt,
+                                length: jwt.length,
+                                preview: jwt.substring(0, 50) + '...'
+                            },
+                            salt: {
+                                type: typeof saltBytes,
+                                length: saltBytes.length,
+                                value: Array.from(saltBytes.slice(0, 8))
+                            },
+                            addressSeed: {
+                                type: typeof addressSeed,
+                                value: addressSeed,
+                                toString: addressSeed.toString(),
+                                length: addressSeed.toString().length
+                            },
+                            maxEpoch: {
+                                type: typeof BigInt(pendingZkLoginContext.maxEpoch),
+                                value: BigInt(pendingZkLoginContext.maxEpoch).toString()
+                            },
+                            randomness: {
+                                type: typeof pendingZkLoginContext.randomness,
+                                value: pendingZkLoginContext.randomness
+                            }
+                        });
+
+                        // Try to ensure addressSeed is properly formatted
+                        // Check if we need to convert it differently
+                        let finalAddressSeed = addressSeed;
+                        if (typeof addressSeed === 'object' && addressSeed.toString) {
+                            finalAddressSeed = addressSeed.toString();
+                            console.log('Converted addressSeed to string:', finalAddressSeed);
+                        }
+
+                        const proofResult = await prover.prove({
+                            jwt,
+                            salt: saltBytes,
+                            addressSeed: finalAddressSeed,
+                            maxEpoch: BigInt(pendingZkLoginContext.maxEpoch),
+                            randomness: pendingZkLoginContext.randomness,
+                            ephemeralPublicKeyBytes: (() => {
+                                const pubKey = pendingZkLoginContext.ephemeralKeyPair.getPublicKey();
+                                // Try different methods to get bytes
+                                if (typeof pubKey.toRawBytes === 'function') {
+                                    return pubKey.toRawBytes();
+                                } else if (typeof pubKey.toBytes === 'function') {
+                                    return pubKey.toBytes();
+                                } else if (typeof pubKey.toSuiBytes === 'function') {
+                                    return pubKey.toSuiBytes();
+                                } else {
+                                    // Fallback: try to convert from base64
+                                    const base64 = pubKey.toBase64();
+                                    return new Uint8Array(atob(base64).split('').map(char => char.charCodeAt(0)));
+                                }
+                            })()
+                        });
+
+                        const actualDuration = Date.now() - startTime;
+                        if (proofResult.signatureInputs) {
+                            // Detect if this was likely a cached/fallback proof vs real generation
+                            const likelyCached = actualDuration < 2000; // Real zkSNARK generation takes much longer
+
+                            if (likelyCached) {
+                                logOutput(`🔧 Proof completed quickly (${actualDuration}ms) - likely using cached/fallback proof`);
+                            } else {
+                                logOutput(`🔧 Proof generation completed (${actualDuration}ms) - likely real zkSNARK generation`);
+                            }
+                        } else {
+                            logOutput(`⚠️ Proof generation returned no signature inputs`);
+                        }
+
+                        signatureInputs = proofResult.signatureInputs;
+                        proverDetails = {
+                            provider: 'local',
+                            receivedAt: Date.now(),
+                            durationMs: proofResult.durationMs
+                        };
+
+                        // Update wallet with proof data
+                        currentWallet.zkLogin.signatureInputs = signatureInputs;
+                        currentWallet.zkLogin.prover = proverDetails;
+                        currentWallet.zkLogin.canSign = true;
+
+                        // Update the success message based on whether it was cached or real generation
+                        const wasLikelyCached = actualDuration < 2000;
+                        if (wasLikelyCached) {
+                            logOutput(`✅ zkLogin proof ready in ${actualDuration}ms (cached/fallback)`);
+                        } else {
+                            logOutput(`✅ zkLogin proof generated in ${actualDuration}ms`);
+                        }
+                        logOutput(`🔏 Local zkLogin proof ready. Transactions can be signed until epoch ${signatureMaxEpoch || '(unknown)'}.`);
+                    } catch (proverError) {
+                        logOutput(`⚠️ Local proof generation failed: ${proverError.message}`);
+                        logOutput('📍 Wallet will be read-only without proof generation capability.');
+                        // Continue without proof for read-only functionality
+                    }
+                }
 
                 // Store zkLogin proof in session storage
                 try {
                     const zkLoginSessionData = {
-                        address: suiAddress,
-                        provider: mapIssuerToProvider(decodedJwt.iss),
-                        jwt,
-                        payload: decodedJwt,
-                        salt: salt.toString(),
-                        addressSeed: addressSeed.toString(),
-                        publicIdentifier: publicIdentifier.toBase64(),
-                        publicKey: pendingZkLoginContext.ephemeralKeyPair?.getPublicKey()?.toBase64() || null,
-                        nonce: pendingZkLoginContext.nonce,
-                        randomness: pendingZkLoginContext.randomness,
-                        maxEpoch: signatureMaxEpoch,
-                        ephemeralPublicKey: pendingZkLoginContext.extendedPublicKey,
-                        connectedAt: Date.now(),
-                        expiresAt: pendingZkLoginContext.expiresAt || null,
-                        signatureInputs,
-                        prover: proverDetails,
-                        canSign: Boolean(signatureInputs)
+                        address: currentWallet.address,
+                        provider: currentWallet.provider,
+                        jwt: currentWallet.zkLogin.jwt,
+                        payload: currentWallet.zkLogin.payload,
+                        salt: currentWallet.zkLogin.salt,
+                        addressSeed: currentWallet.zkLogin.addressSeed,
+                        publicIdentifier: currentWallet.zkLogin.publicIdentifier,
+                        publicKey: currentWallet.zkLogin.publicKey,
+                        nonce: currentWallet.zkLogin.nonce,
+                        randomness: currentWallet.zkLogin.randomness,
+                        maxEpoch: currentWallet.zkLogin.maxEpoch,
+                        ephemeralPublicKey: currentWallet.zkLogin.ephemeralPublicKey,
+                        connectedAt: currentWallet.zkLogin.connectedAt,
+                        expiresAt: currentWallet.zkLogin.expiresAt,
+                        signatureInputs: currentWallet.zkLogin.signatureInputs,
+                        prover: currentWallet.zkLogin.prover,
+                        canSign: currentWallet.zkLogin.canSign
                     };
                     sessionStorage.setItem('galactic:zkLogin', JSON.stringify(zkLoginSessionData));
                     logOutput('🔐 zkLogin proof stored in session storage');
@@ -843,14 +957,10 @@
                     logOutput('Warning: Failed to store zkLogin proof in session storage: ' + storageError.message, false);
                 }
 
-                logOutput(`🎉 zkLogin connected as ${suiAddress}`);
-                if (signatureInputs) {
-                    logOutput(`🔏 Local zkLogin proof ready. Transactions can be signed until epoch ${signatureMaxEpoch || '(unknown)'}.`);
-                } else {
+                if (!currentWallet.zkLogin.canSign) {
                     logOutput('⚠️ Local zkLogin proof generation failed; wallet is read-only.');
                 }
 
-                await getWalletBalance();
                 try {
                     await findMyWallets();
                 } catch (e) {
@@ -983,8 +1093,69 @@
             }
         }
 
+        // Helper function to ensure SDK tier is loaded
+        async function ensureSDKTier(tier, description) {
+            if (!window.SuiSDK) {
+                throw new Error('SuiSDK not available');
+            }
+
+            if (window.SuiSDK._loading && window.SuiSDK._loading[tier]) {
+                logOutput(`⏳ Waiting for ${description} to finish loading...`);
+            }
+
+            if (tier === 'core' && !window.SuiSDK.Sui.SuiClient) {
+                logOutput(`🔄 Loading ${description}...`);
+                await window.SuiSDK.loadCore();
+            } else if (tier === 'transaction' && (
+                !window.SuiSDK.Sui.Ed25519Keypair ||
+                typeof window.SuiSDK.Sui.Ed25519Keypair.generate !== 'function'
+            )) {
+                logOutput(`🔄 Loading ${description}...`);
+                console.log('Before loading transaction:', {
+                    Ed25519Keypair: typeof window.SuiSDK.Sui.Ed25519Keypair,
+                    generate: typeof window.SuiSDK.Sui.Ed25519Keypair?.generate
+                });
+                await window.SuiSDK.loadTransaction();
+                console.log('After loading transaction:', {
+                    Ed25519Keypair: typeof window.SuiSDK.Sui.Ed25519Keypair,
+                    generate: typeof window.SuiSDK.Sui.Ed25519Keypair?.generate
+                });
+            } else if (tier === 'advanced' && (
+                typeof window.SuiSDK.ZkLogin?.generateNonce !== 'function' ||
+                typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey !== 'function'
+            )) {
+                logOutput(`🔄 Loading ${description}...`);
+                console.log('Before loading advanced:', {
+                    zkLoginObject: typeof window.SuiSDK.ZkLogin,
+                    generateNonce: typeof window.SuiSDK.ZkLogin?.generateNonce,
+                    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey
+                });
+                await window.SuiSDK.loadAdvanced();
+                console.log('After loading advanced:', {
+                    zkLoginObject: typeof window.SuiSDK.ZkLogin,
+                    generateNonce: typeof window.SuiSDK.ZkLogin?.generateNonce,
+                    getExtendedEphemeralPublicKey: typeof window.SuiSDK.ZkLogin?.getExtendedEphemeralPublicKey
+                });
+            }
+        }
+
         async function connectZkLoginProvider(provider) {
             try {
+                // Ensure advanced SDK tier is loaded for zkLogin
+                await ensureSDKTier('advanced', 'zkLogin support');
+
+                // Ensure zkLogin helpers are loaded (should already be loaded in background)
+                if (!window.__zkLoginHelpersLoaded__) {
+                    logOutput('🔄 Loading zkLogin helpers...');
+                    try {
+                        await window.loadZkLoginHelpers();
+                        logOutput('✅ zkLogin helpers loaded successfully');
+                    } catch (error) {
+                        logOutput('❌ Failed to load zkLogin helpers: ' + error.message);
+                        return;
+                    }
+                }
+
                 // Close all dropdowns
                 document.querySelectorAll('.zklogin-dropdown').forEach(d => d.classList.remove('visible'));
 
@@ -1401,10 +1572,8 @@
         async function initializeSuiClient() {
             if (suiClient) return suiClient;
 
-            // Fast path: check if SDK is immediately available
-            if (!window.SuiSDK) {
-                await waitForSDKs();
-            }
+            // Ensure core SDK tier is loaded for network connection
+            await ensureSDKTier('core', 'network connection');
 
             if (!window.SuiSDK) throw new Error('SDK not loaded');
             const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
@@ -2841,8 +3010,11 @@
         window.handleGoogleSignIn = handleGoogleSignIn;
 
         // Generate ephemeral keypair and nonce when user signs in
-        function generateEphemeralKeyData() {
+        async function generateEphemeralKeyData() {
             try {
+                // Ensure transaction tier is loaded for keypair generation
+                await ensureSDKTier('transaction', 'keypair generation');
+
                 // Generate ephemeral keypair for this session (for demo purposes)
                 if (window.SuiSDK?.Sui?.Ed25519Keypair) {
                     ephemeralKeypair = window.SuiSDK.Sui.Ed25519Keypair.generate();

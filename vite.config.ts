@@ -7,20 +7,45 @@ export default defineConfig({
         ? './src/index-minimal.ts'
         : process.env.BUILD_TARGET === 'zklogin'
         ? './src/zklogin-helpers.ts'
-        : './src/index-minimal.ts', // Default to minimal
+        : process.env.BUILD_TARGET === 'shell'
+        ? './src/index-shell.ts'
+        : process.env.BUILD_TARGET === 'core'
+        ? './src/index-core.ts'
+        : process.env.BUILD_TARGET === 'transaction'
+        ? './src/index-transaction.ts'
+        : process.env.BUILD_TARGET === 'advanced'
+        ? './src/index-advanced.ts'
+        : './src/index-shell.ts', // Default to shell
       name: process.env.BUILD_TARGET === 'minimal'
         ? 'SuiSDKMinimal'
         : process.env.BUILD_TARGET === 'zklogin'
         ? 'SuiSDKZkLoginHelpers'
-        : 'SuiSDKMinimal', // Default to minimal
+        : process.env.BUILD_TARGET === 'shell'
+        ? 'SuiSDKShell'
+        : process.env.BUILD_TARGET === 'core'
+        ? 'SuiSDKCore'
+        : process.env.BUILD_TARGET === 'transaction'
+        ? 'SuiSDKTransaction'
+        : process.env.BUILD_TARGET === 'advanced'
+        ? 'SuiSDKAdvanced'
+        : 'SuiSDKShell', // Default to shell
       fileName: process.env.BUILD_TARGET === 'minimal'
         ? 'sui-sdk-minimal'
         : process.env.BUILD_TARGET === 'zklogin'
         ? 'zklogin-helpers'
-        : 'sui-sdk-minimal', // Default to minimal
+        : process.env.BUILD_TARGET === 'shell'
+        ? 'sui-sdk-shell'
+        : process.env.BUILD_TARGET === 'core'
+        ? 'sui-sdk-core'
+        : process.env.BUILD_TARGET === 'transaction'
+        ? 'sui-sdk-transaction'
+        : process.env.BUILD_TARGET === 'advanced'
+        ? 'sui-sdk-advanced'
+        : 'sui-sdk-shell', // Default to shell
       formats: ['iife'],
     },
     minify: true,
+    sourcemap: false, // Disable source maps for production builds to reduce bundle size
     target: 'esnext',
     rollupOptions: {
       output: {
@@ -35,6 +60,14 @@ export default defineConfig({
       ? 'dist-temp-minimal'
       : process.env.BUILD_TARGET === 'zklogin'
       ? 'dist-temp-zklogin'
+      : process.env.BUILD_TARGET === 'shell'
+      ? 'dist-temp-shell'
+      : process.env.BUILD_TARGET === 'core'
+      ? 'dist-temp-core'
+      : process.env.BUILD_TARGET === 'transaction'
+      ? 'dist-temp-transaction'
+      : process.env.BUILD_TARGET === 'advanced'
+      ? 'dist-temp-advanced'
       : 'dist',
   },
   server: {

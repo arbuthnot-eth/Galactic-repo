@@ -322,6 +322,18 @@ export class LocalZkLoginProver {
     return '0x' + hashPart;
   }
 
+  private stringToField(input: string): bigint {
+    // Convert string to field element using a simple hash
+    const BN254_FIELD_MODULUS = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
+
+    let hash = BigInt(0);
+    for (let i = 0; i < input.length; i++) {
+      hash = (hash * BigInt(31) + BigInt(input.charCodeAt(i))) % BN254_FIELD_MODULUS;
+    }
+
+    return hash;
+  }
+
   private async generateRealZkLoginProof({
     jwt,
     salt,
@@ -341,7 +353,7 @@ export class LocalZkLoginProver {
   }): Promise<{ proofPoints: any }> {
     try {
       // Load the proving key from filesystem
-      const provingKeyResponse = await fetch('../zkLogin-main.zkey');
+      const provingKeyResponse = await fetch('/zklogin.zkey');
       if (!provingKeyResponse.ok) {
         throw new Error(`Failed to load proving key: ${provingKeyResponse.status}`);
       }
@@ -349,7 +361,7 @@ export class LocalZkLoginProver {
       const provingKey = new Uint8Array(provingKeyBuffer);
 
       // Load WASM file for real proving
-      const wasmResponse = await fetch('../zkLogin.wasm');
+      const wasmResponse = await fetch('/zklogin.wasm');
       if (!wasmResponse.ok) {
         throw new Error(`Failed to load WASM file: ${wasmResponse.status}`);
       }
@@ -367,8 +379,8 @@ export class LocalZkLoginProver {
         salt
       });
 
-      console.log('✅ zkLogin-main.zkey loaded - real proving available');
-      console.log('✅ zkLogin.wasm loaded - real proving enabled');
+      console.log('✅ zklogin.zkey loaded - real proving available');
+      console.log('✅ zklogin.wasm loaded - real proving enabled');
       console.log('Circuit inputs prepared:', Object.keys(inputs));
 
       // Generate real cryptographic proof using snarkjs
@@ -390,7 +402,7 @@ export class LocalZkLoginProver {
 
       return {
         proofPoints,
-        circuitFileUsed: 'zkLogin-main.zkey',
+        circuitFileUsed: 'zklogin.zkey',
         realProving: true
       };
 
@@ -425,23 +437,55 @@ export class LocalZkLoginProver {
     maxEpoch: bigint;
     nonce: string;
     salt: Uint8Array;
-  }): Record<string, string> {
-    // This would need to be updated based on the actual zkLogin circuit input format
-    // For now, using a simplified format that matches typical zkLogin circuits
-    return {
-      // Public inputs
-      address_hash: addressSeed.toString(),
-      current_epoch: '1000', // Would be dynamic
-      max_epoch: maxEpoch.toString(),
-      ephemeral_pubkey_x: '0', // Would be derived from ephemeral key
-      ephemeral_pubkey_y: '0', // Would be derived from ephemeral key
+  }): Record<string, string | string[]> {
+    // Prepare inputs according to the actual zkLogin circuit specification
+    const BN254_FIELD_MODULUS = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
 
-      // Private inputs (these would be computed from the JWT and other data)
-      sub_hash: this.hashZkLoginInputs({ sub }).slice(0, 64),
-      iss_hash: this.hashZkLoginInputs({ iss }).slice(0, 64),
-      aud_hash: this.hashZkLoginInputs({ aud }).slice(0, 64),
-      salt: Array.from(salt).map(b => b.toString()).join(','),
-      domain_separator: this.hashZkLoginInputs({ domain: 'SUI_ZKLOGIN_TYPE_V1' }).slice(0, 64)
+    // Convert addressSeed to field element (single value, not array)
+    const addressHash = addressSeed % BN254_FIELD_MODULUS;
+
+    // Convert salt to field element
+    let saltField = BigInt(0);
+    for (let i = 0; i < Math.min(salt.length, 32); i++) {
+      saltField = (saltField * BigInt(256)) + BigInt(salt[i]);
+    }
+    saltField = saltField % BN254_FIELD_MODULUS;
+
+    // Convert sub, iss, aud, nonce to field elements
+    const subField = this.stringToField(sub);
+    const issField = this.stringToField(iss);
+    const audField = this.stringToField(aud);
+    const nonceField = this.stringToField(nonce);
+
+    console.log('Preparing zkLogin circuit inputs:', {
+      addressHash: addressHash.toString(),
+      subField: subField.toString(),
+      issField: issField.toString(),
+      audField: audField.toString(),
+      nonceField: nonceField.toString(),
+      saltField: saltField.toString(),
+      maxEpoch: maxEpoch.toString()
+    });
+
+    return {
+      // JWT components (arrays) - simplified for now
+      jwtHeaderHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
+      jwtPayloadHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
+      jwtSignature: Array(64).fill('0'), // Would be actual RSA signature
+      googleModulus: Array(64).fill('0'), // Would be Google's RSA modulus
+      googleExponent: '65537', // Google's RSA exponent
+
+      // Single field element inputs
+      sub: subField.toString(),
+      iss: issField.toString(),
+      aud: audField.toString(),
+      nonce: nonceField.toString(),
+      salt: saltField.toString(),
+
+      // zkLogin specific inputs
+      addressHash: addressHash.toString(),
+      maxEpoch: maxEpoch.toString(),
+      currentEpoch: '1000' // Would be dynamic
     };
   }
 }

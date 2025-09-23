@@ -11,7 +11,7 @@ const htmlFiles = [
   }
 ];
 
-const minimalBundlePath = path.join(__dirname, 'dist/sui-sdk-minimal.iife.js');
+const shellBundlePath = path.join(__dirname, 'dist/sui-sdk-shell.iife.js');
 const zkLoginBundlePath = path.join(__dirname, 'dist/zklogin-helpers.iife.js');
 
 /**
@@ -49,20 +49,20 @@ function createInlineLoader(bundle, { label }) {
 
 try {
   // Check if bundles exist
-  const hasMinimal = fs.existsSync(minimalBundlePath);
+  const hasShell = fs.existsSync(shellBundlePath);
   const hasZkLogin = fs.existsSync(zkLoginBundlePath);
 
-  if (!hasMinimal) {
-    console.error('❌ No minimal bundle found! Please run "npm run build:minimal" first.');
+  if (!hasShell) {
+    console.error('❌ No shell bundle found! Please run "npm run build:tiered" first.');
     process.exit(1);
   }
 
-  // Read the minimal bundle for SmartWallet
-  let minimalBundle = '';
-  if (hasMinimal) {
-    minimalBundle = fs.readFileSync(minimalBundlePath, 'utf8');
-    minimalBundle = minimalBundle.replace(/<\/script>/gi, '<\\/script>');
-    console.log('📦 Minimal bundle loaded successfully');
+  // Read the shell bundle for SmartWallet
+  let shellBundle = '';
+  if (hasShell) {
+    shellBundle = fs.readFileSync(shellBundlePath, 'utf8');
+    shellBundle = shellBundle.replace(/<\/script>/gi, '<\\/script>');
+    console.log('📦 Shell bundle loaded successfully');
   }
 
 
@@ -91,9 +91,9 @@ try {
     // Read the base HTML file
     let html = fs.readFileSync(inputPath, 'utf8');
     
-    // Use minimal bundle for SmartWallet
-    const bundleToUse = minimalBundle;
-    const bundleName = 'minimal';
+    // Use shell bundle for SmartWallet
+    const bundleToUse = shellBundle;
+    const bundleName = 'shell';
 
     const inlineLoader = createInlineLoader(bundleToUse, { label: `${file.name} ${bundleName}` });
     let bundleReplacement = inlineLoader;
@@ -101,7 +101,7 @@ try {
     // For SmartWallet, only load minimal bundle - extended features on demand only
     if (file.name === 'SmartWallet') {
       // Read the passkey icon and convert to base64
-      const passkeyIconPath = path.join(__dirname, 'assets', 'passkey-low.png');
+      const passkeyIconPath = path.join(__dirname, 'assets', 'passkey-low.webp');
       let passkeyIconBase64 = '';
       if (fs.existsSync(passkeyIconPath)) {
         const passkeyIconBuffer = fs.readFileSync(passkeyIconPath);
@@ -111,22 +111,39 @@ try {
       bundleReplacement += `
     <script>
       // SmartWallet performance optimization: Using ${bundleName} bundle
-      console.log('SmartWallet: ${bundleName} SDK loaded. All features available.');
-      window.__SMARTWALLET_ZKLOGIN_BASE64 = '${zkLoginBundleBase64}';
-      window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/png;base64,' + '${passkeyIconBase64}';
+      console.log('SmartWallet: ${bundleName} SDK loaded. Progressive enhancement starting...');
+      // Tiered loading: Core/Transaction/Advanced tiers load progressively
+      window.__SMARTWALLET_PASSKEY_ICON__ = 'data:image/webp;base64,' + '${passkeyIconBase64}';
+      // Note: window.__SMARTWALLET_ZKLOGIN_BASE64 removed for size optimization - zkLogin helpers load from external file
+
+      // Load zkLogin helpers when browser is idle for better UX
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          window.loadZkLoginHelpers?.().catch(err =>
+            console.log('Background zkLogin helpers load failed (non-critical):', err.message)
+          );
+        }, { timeout: 2000 });
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(() => {
+          window.loadZkLoginHelpers?.().catch(err =>
+            console.log('Background zkLogin helpers load failed (non-critical):', err.message)
+          );
+        }, 1000);
+      }
     </script>`;
     }
 
     html = html.replace('<!-- BUNDLE_PLACEHOLDER -->', bundleReplacement);
     
     // Add/replace favicon: if dev link exists, replace with data URL for single-file prod
-    const faviconTxtPath = path.join(__dirname, 'assets', 'vw-favicon-original.png');
+    const faviconTxtPath = path.join(__dirname, 'assets', 'vw-favicon.webp');
     const faviconLinkRegex = /<link\s+[^>]*rel=["']icon["'][^>]*>/i;
     const hasFaviconLink = faviconLinkRegex.test(html);
     if (fs.existsSync(faviconTxtPath)) {
       const iconBuffer = fs.readFileSync(faviconTxtPath);
       const iconBase64 = iconBuffer.toString('base64');
-      const dataUrlTag = `<link rel="icon" type="image/png" href="data:image/png;base64,${iconBase64}">`;
+      const dataUrlTag = `<link rel="icon" type="image/webp" href="data:image/webp;base64,${iconBase64}">`;
       if (hasFaviconLink) {
         html = html.replace(faviconLinkRegex, dataUrlTag);
       } else {

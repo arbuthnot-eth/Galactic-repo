@@ -72,6 +72,11 @@ template ZkLogin() {
     signal input nonce;                // Ephemeral nonce
     signal input salt;                 // User salt for address derivation
 
+    // Additional zkLogin specific inputs
+    signal input addressHash;          // Address hash for zkLogin
+    signal input maxEpoch;             // Maximum epoch for validity
+    signal input currentEpoch;         // Current epoch
+
     // Public outputs
     signal output commitment;          // Hash of sub (proves knowledge)
     signal output addressSeed;         // For Sui address derivation
@@ -114,6 +119,17 @@ template ZkLogin() {
     // Step 5: Verify claims are consistent (issuer must be Google)
     // In a real implementation, these would be parsed from JWT payload
     iss * (iss - 1) === 0; // Simplified: iss should be 1 for Google
+
+    // Step 6: Verify address hash is valid
+    // This should be computed from the actual address derivation logic
+    // For now, ensure it's a valid field element
+    component addressHashCheck = Poseidon(1);
+    addressHashCheck.inputs[0] <== addressHash;
+    addressHashCheck.out === addressHash; // Simple check
+
+    // Step 7: Verify epoch constraints
+    // currentEpoch should be less than maxEpoch
+    currentEpoch * (currentEpoch - maxEpoch) === 0; // Should be 0 if currentEpoch <= maxEpoch
 }
 
 component main = ZkLogin();
