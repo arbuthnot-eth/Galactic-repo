@@ -288,7 +288,9 @@ export class LocalZkLoginProver {
       const wasm = new Uint8Array(wasmBuffer);
 
       // Generate circuit inputs
-      const inputs = this.prepareZkLoginCircuitInputs({
+      // The circuit expects a **single** address_hash field.  The helper now
+    // returns the inputs unchanged, so we can pass them directly.
+    const inputs = this.prepareZkLoginCircuitInputs({
         sub: payloadJson.sub,
         iss: payloadJson.iss,
         aud: payloadJson.aud || '',
@@ -429,7 +431,7 @@ export class LocalZkLoginProver {
       currentEpoch: '1000' // Would be dynamic
     };
 
-    // Convert address_hash to array of two limbs as required by circuit
+    // The circuit expects a single address_hash field; no limb conversion needed.
     return buildZkLoginInputs(rawInputs);
   }
 }

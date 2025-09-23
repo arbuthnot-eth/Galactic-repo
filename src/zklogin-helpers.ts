@@ -64,41 +64,19 @@ if (globalTarget && !(globalTarget as any).__zkLoginHelpersLoaded__) {
 // -------------------------------------------------------------------------
 
 /**
- * Splits a 256-bit address hash into two 128-bit limbs for circuit input.
- * The circuit expects `address_hash` as an array of two field elements [low, high]
- * in little-endian order (low limb first).
+ * **NOTE:** The zkLogin circuit defines `address_hash` as a **single** field element
+ * (see `zklogin.circom` line `signal input addressHash;`).  Earlier versions of the
+ * helper mistakenly split this into two 128‑bit limbs, which caused the runtime
+ * error *"Too many values for input signal address_hash"*.  The helper now simply
+ * passes the hash through unchanged.
  *
- * @param hash - The 256-bit hash as a decimal string or BigInt
- * @returns Array of two strings [low, high] representing the 128-bit limbs
- */
-export function splitAddressHash(hash: string | bigint): [string, string] {
-  const MOD = 2n ** 128n;               // 128-bit mask
-  const big = typeof hash === 'bigint' ? hash : BigInt(hash);
-
-  const low = big % MOD;                // lower 128 bits
-  const high = big / MOD;               // upper 128 bits
-
-  // Convert back to decimal strings (SnarkJS expects decimal)
-  return [low.toString(), high.toString()];
-}
-
-/**
- * Helper to build zkLogin circuit inputs with proper address_hash array format.
- * Converts the single address_hash field into the two-limb array expected by the circuit.
- *
- * @param rawInputs - Raw zkLogin inputs with single address_hash field
- * @returns Circuit inputs with address_hash as [low, high] array
+ * @param rawInputs - Raw zkLogin inputs that already contain `address_hash` as a
+ *                    decimal string (or any format accepted by the circuit).
+ * @returns The same input object without modification.
  */
 export function buildZkLoginInputs(rawInputs: Record<string, any>) {
-  // Split the address_hash into two 128-bit limbs
-  const addressHashLimbs = splitAddressHash(rawInputs.address_hash);
-
-  const circuitInputs = {
-    ...rawInputs,
-    address_hash: addressHashLimbs, // Convert to array of two strings
-  };
-
-  return circuitInputs;
+  // No splitting required – the circuit expects a single field element.
+  return { ...rawInputs };
 }
 
 // -------------------------------------------------------------------------
