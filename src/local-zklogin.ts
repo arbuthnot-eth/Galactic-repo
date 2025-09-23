@@ -1,9 +1,10 @@
 // Basic zkLogin functions are now available in main bundle at window.SuiSDK.ZkLogin
 // Only import what's actually used internally for proof generation
-import { generateNonce, generateRandomness, genAddressSeed } from '@mysten/sui/zklogin';
+import { generateNonce, generateRandomness } from '@mysten/sui/zklogin';
 import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { groth16 } from 'snarkjs';
 import { poseidon1 } from 'poseidon-lite/poseidon1';
+import { buildZkLoginInputs } from './zklogin-helpers';
 
 export interface LocalZkLoginAssets {
   wasmBase64?: string;
@@ -407,7 +408,7 @@ export class LocalZkLoginProver {
       maxEpoch: maxEpoch.toString()
     });
 
-    return {
+    const rawInputs = {
       // JWT components (arrays) - match circuit signal declarations
       jwtHeaderHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
       jwtPayloadHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
@@ -422,11 +423,14 @@ export class LocalZkLoginProver {
       nonce: nonceField.toString(),
       salt: saltField.toString(),
 
-      // zkLogin specific inputs - single field elements as per circuit
-      address_hash: addressHash, // Single field element, not array
+      // zkLogin specific inputs
+      address_hash: addressHash, // Single field element, will be converted to array
       maxEpoch: maxEpoch.toString(),
       currentEpoch: '1000' // Would be dynamic
     };
+
+    // Convert address_hash to array of two limbs as required by circuit
+    return buildZkLoginInputs(rawInputs);
   }
 }
 
@@ -434,8 +438,7 @@ export const LocalZkLogin = {
   createProver(assets: LocalZkLoginAssets = {}): LocalZkLoginProver {
     return new LocalZkLoginProver(assets);
   },
-  // Note: Basic zkLogin functions (generateRandomness, generateNonce, genAddressSeed,
-  // decodeJwt, jwtToAddress, toZkLoginPublicIdentifier) are now available in
+  // Note: Basic zkLogin functions (generateRandomness, generateNonce) are now available in
   // window.SuiSDK.ZkLogin from the main bundle. LocalZkLogin focuses on proof generation.
   Ed25519Keypair,
   Ed25519PublicKey,
