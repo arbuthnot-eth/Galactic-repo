@@ -1,16 +1,178 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>OAuth Callback</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galactic - OAuth Callback</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3a52 0%, #2d4a66 100%);
+            color: #f4f1ef;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .callback-container {
+            text-align: center;
+            padding: 40px;
+            border-radius: 16px;
+            background: rgba(45, 74, 102, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(69, 139, 189, 0.4);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            max-width: 400px;
+            width: 90%;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            color: #458BBD;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .logo::before {
+            content: '🌌';
+            font-size: 28px;
+        }
+
+        .status-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .status-message {
+            font-size: 18px;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+
+        .status-detail {
+            font-size: 14px;
+            color: #c3d5e8;
+            margin-bottom: 24px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(69, 139, 189, 0.3);
+            border-radius: 50%;
+            border-top-color: #458BBD;
+            animation: spin 1s linear infinite;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .processing { color: #458BBD; }
+
+        .auto-close {
+            font-size: 12px;
+            color: #9ba8b4;
+            margin-top: 16px;
+        }
+
+        /* Gradient border effect */
+        .callback-container::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            padding: 2px;
+            background: linear-gradient(45deg, #458BBD, #2d4a66, #458BBD);
+            border-radius: 18px;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            z-index: -1;
+            opacity: 0.6;
+        }
+    </style>
 </head>
 <body>
-    <p>Processing OAuth callback...</p>
+    <div class="callback-container">
+        <div class="logo">Galactic</div>
+
+        <div id="status-content">
+            <div class="status-icon processing">🔐</div>
+            <div class="status-message">Processing OAuth callback</div>
+            <div class="status-detail">
+                Authenticating with Google...
+                <span class="spinner"></span>
+            </div>
+        </div>
+
+        <div class="auto-close" id="auto-close-text"></div>
+    </div>
+
     <script>
         // Extract the id_token from the URL hash
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const idToken = hashParams.get('id_token');
         const error = hashParams.get('error');
-        
+
+        function updateStatus(icon, message, detail, className, autoCloseTime = 2000) {
+            const statusContent = document.getElementById('status-content');
+            const autoCloseText = document.getElementById('auto-close-text');
+
+            statusContent.innerHTML = `
+                <div class="status-icon ${className}">${icon}</div>
+                <div class="status-message">${message}</div>
+                <div class="status-detail">${detail}</div>
+            `;
+
+            if (autoCloseTime > 0) {
+                let timeLeft = Math.ceil(autoCloseTime / 1000);
+                autoCloseText.textContent = `This window will close in ${timeLeft} seconds`;
+
+                const countdown = setInterval(() => {
+                    timeLeft--;
+                    if (timeLeft > 0) {
+                        autoCloseText.textContent = `This window will close in ${timeLeft} seconds`;
+                    } else {
+                        clearInterval(countdown);
+                        autoCloseText.textContent = 'Closing...';
+                    }
+                }, 1000);
+            }
+        }
+
         if (idToken) {
             // Send the token back to the parent window
             if (window.opener) {
@@ -19,7 +181,13 @@
                     idToken: idToken
                 }, window.location.origin);
             }
-            document.body.innerHTML = '<p>✅ OAuth successful! You can close this window.</p>';
+
+            updateStatus(
+                '✅',
+                'Authentication successful!',
+                'You can safely close this window or it will close automatically.',
+                'success'
+            );
         } else if (error) {
             // Send error back to parent
             if (window.opener) {
@@ -28,15 +196,28 @@
                     error: error
                 }, window.location.origin);
             }
-            document.body.innerHTML = '<p>❌ OAuth error: ' + error + '</p>';
+
+            updateStatus(
+                '❌',
+                'Authentication failed',
+                `Error: ${error}`,
+                'error',
+                3000
+            );
         } else {
-            document.body.innerHTML = '<p>❌ No token received</p>';
+            updateStatus(
+                '❌',
+                'Authentication failed',
+                'No authentication token received from provider.',
+                'error',
+                3000
+            );
         }
-        
-        // Close the popup after a short delay
+
+        // Close the popup after delay
         setTimeout(() => {
             window.close();
-        }, 2000);
+        }, error ? 3000 : 2000);
     </script>
 </body>
 </html>
