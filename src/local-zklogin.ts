@@ -3,6 +3,7 @@
 import { generateNonce, generateRandomness, genAddressSeed } from '@mysten/sui/zklogin';
 import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { groth16 } from 'snarkjs';
+import { poseidon1 } from 'poseidon-lite/poseidon1';
 
 export interface LocalZkLoginAssets {
   wasmBase64?: string;
@@ -26,6 +27,8 @@ export interface LocalZkLoginProofContext {
   nonce?: string;
   // Public key bytes for nonce generation (compressed form expected)
   ephemeralPublicKeyBytes?: Uint8Array;
+  // Sui address for correct address_hash computation
+  address?: string;
 }
 
 export interface LocalZkLoginProofResult {
@@ -127,6 +130,7 @@ export class LocalZkLoginProver {
     randomness: randomnessInput,
     nonce: nonceInput,
     ephemeralPublicKeyBytes,
+    address,
   }: LocalZkLoginProofContext): Promise<LocalZkLoginProofResult> {
     if (!this.ready) {
       throw new Error('Local zkLogin prover not initialised');
@@ -147,6 +151,7 @@ export class LocalZkLoginProver {
 
       // Use provided randomness or generate new one
       const randomness = randomnessInput ?? generateRandomness();
+      const randomnessBigInt = BigInt(randomness);
       let nonce = nonceInput;
 
       // Generate nonce using ephemeral public key if provided
@@ -155,12 +160,12 @@ export class LocalZkLoginProver {
           const ephemeralPublicKey = new Ed25519PublicKey(ephemeralPublicKeyBytes);
           nonce = generateNonce(
             ephemeralPublicKey,
-            maxEpoch,
+            Number(maxEpoch),
             randomness,
           );
         } else {
           // Fallback: generate a deterministic nonce based on JWT content
-          nonce = this.generateDeterministicNonce(payloadJson, randomness);
+          nonce = this.generateDeterministicNonce(payloadJson, randomnessBigInt);
         }
       }
 
@@ -173,9 +178,10 @@ export class LocalZkLoginProver {
           salt,
           addressSeed,
           maxEpoch,
-          randomness,
+          randomness: randomnessBigInt,
           nonce,
-          payloadJson
+          payloadJson,
+          address
         });
       } catch (error) {
         console.warn('Real proving failed, falling back to mock:', error);
@@ -184,9 +190,10 @@ export class LocalZkLoginProver {
           salt,
           addressSeed,
           maxEpoch,
-          randomness,
+          randomness: randomnessBigInt,
           nonce,
-          payloadJson
+          payloadJson,
+          address
         });
       }
 
@@ -210,7 +217,7 @@ export class LocalZkLoginProver {
         },
         durationMs,
         nonce,
-        randomness,
+        randomness: randomnessBigInt,
         circuitFileUsed: (proofData as any).circuitFileUsed || 'mock'
       };
     } catch (error) {
@@ -251,7 +258,8 @@ export class LocalZkLoginProver {
     maxEpoch,
     randomness,
     nonce,
-    payloadJson
+    payloadJson,
+    address
   }: {
     jwt: string;
     salt: Uint8Array;
@@ -260,6 +268,7 @@ export class LocalZkLoginProver {
     randomness: bigint;
     nonce: string;
     payloadJson: any;
+    address?: string;
   }): Promise<{ proofPoints: any }> {
     // Generate realistic zkLogin proof points based on the actual specification
     const seed = genAddressSeed(
@@ -341,7 +350,8 @@ export class LocalZkLoginProver {
     maxEpoch,
     randomness,
     nonce,
-    payloadJson
+    payloadJson,
+    address
   }: {
     jwt: string;
     salt: Uint8Array;
@@ -350,6 +360,7 @@ export class LocalZkLoginProver {
     randomness: bigint;
     nonce: string;
     payloadJson: any;
+    address?: string;
   }): Promise<{ proofPoints: any }> {
     try {
       // Load the proving key from filesystem
@@ -376,12 +387,14 @@ export class LocalZkLoginProver {
         addressSeed,
         maxEpoch,
         nonce,
-        salt
+        salt,
+        address
       });
 
       console.log('✅ zklogin.zkey loaded - real proving available');
       console.log('✅ zklogin.wasm loaded - real proving enabled');
       console.log('Circuit inputs prepared:', Object.keys(inputs));
+      console.log('🔍 FULL CIRCUIT INPUTS:', JSON.stringify(inputs, null, 2));
 
       // Generate real cryptographic proof using snarkjs
       const { proof, publicSignals } = await groth16.fullProve(
@@ -401,9 +414,7 @@ export class LocalZkLoginProver {
       };
 
       return {
-        proofPoints,
-        circuitFileUsed: 'zklogin.zkey',
-        realProving: true
+        proofPoints
       };
 
     } catch (error) {
@@ -416,7 +427,8 @@ export class LocalZkLoginProver {
         maxEpoch,
         randomness,
         nonce,
-        payloadJson
+        payloadJson,
+        address
       });
     }
   }
@@ -428,21 +440,42 @@ export class LocalZkLoginProver {
     addressSeed,
     maxEpoch,
     nonce,
-    salt
+    salt,
+    address
   }: {
     sub: string;
     iss: string;
     aud: string;
-    addressSeed: bigint;
+    addressSeed: bigint | string;
     maxEpoch: bigint;
     nonce: string;
     salt: Uint8Array;
+    address?: string | null;
   }): Record<string, string | string[]> {
     // Prepare inputs according to the actual zkLogin circuit specification
     const BN254_FIELD_MODULUS = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
 
-    // Convert addressSeed to field element (single value, not array)
-    const addressHash = addressSeed % BN254_FIELD_MODULUS;
+    // Compute address hash correctly for zkLogin circuit
+    // If address is provided, compute hash from it; otherwise use addressSeed directly
+    let addressHash: string;
+    console.log('🔍 DEBUG: Address hash computation - address provided:', address);
+    if (address) {
+      // 1️⃣ Strip the 0x prefix, turn the hex string into a BigInt
+      const addressNo0x = address.replace(/^0x/, '');
+      const addressBigInt = BigInt('0x' + addressNo0x);
+
+      console.log('🔍 DEBUG: Computing Poseidon hash for address:', address, '-> BigInt:', addressBigInt.toString());
+      // 2️⃣ poseidon1 expects an array with a single element
+      //    This returns a BigInt that we convert to string for the circuit
+      const poseidonResult = poseidon1([addressBigInt]);
+      addressHash = poseidonResult.toString();
+      console.log('🔍 DEBUG: Poseidon result type:', typeof addressHash, 'value:', addressHash);
+    } else {
+      // Fallback: use addressSeed directly as field element
+      const addressSeedBigInt = typeof addressSeed === 'string' ? BigInt(addressSeed) : addressSeed;
+      addressHash = (addressSeedBigInt % BN254_FIELD_MODULUS).toString();
+      console.log('🔍 DEBUG: Using fallback addressSeed computation:', addressHash);
+    }
 
     // Convert salt to field element
     let saltField = BigInt(0);
@@ -453,14 +486,24 @@ export class LocalZkLoginProver {
 
     // Convert sub, iss, aud, nonce to field elements
     const subField = this.stringToField(sub);
+    console.log('🔍 DEBUG: Real iss value from JWT:', iss);
+
+    // Production: Exact string matching for issuer validation
+    const VALID_GOOGLE_ISSUER = 'https://accounts.google.com';
+    if (iss !== VALID_GOOGLE_ISSUER) {
+      throw new Error(`Invalid issuer: ${iss}. Expected: ${VALID_GOOGLE_ISSUER}`);
+    }
+
+    // Convert the exact issuer string to field element using the same hash function
     const issField = this.stringToField(iss);
+    console.log('🔍 DEBUG: Production iss field hash:', issField.toString());
     const audField = this.stringToField(aud);
     const nonceField = this.stringToField(nonce);
 
     console.log('Preparing zkLogin circuit inputs:', {
-      addressHash: addressHash.toString(),
+      addressHash: addressHash,
       subField: subField.toString(),
-      issField: issField.toString(),
+      issField: issField.toString(), // Hash of exact issuer string
       audField: audField.toString(),
       nonceField: nonceField.toString(),
       saltField: saltField.toString(),
@@ -473,19 +516,19 @@ export class LocalZkLoginProver {
       jwtPayloadHash: Array(8).fill('0'), // Would be actual SHA256 hash chunks
       jwtSignature: Array(64).fill('0'), // Would be actual RSA signature
       googleModulus: Array(64).fill('0'), // Would be Google's RSA modulus
-      googleExponent: '65537', // Google's RSA exponent
+      googleExponent: ['65537'], // Google's RSA exponent
 
       // Single field element inputs
-      sub: subField.toString(),
-      iss: issField.toString(),
-      aud: audField.toString(),
-      nonce: nonceField.toString(),
-      salt: saltField.toString(),
+      sub: [subField.toString()],
+      iss: [issField.toString()], // Hash of the exact issuer string
+      aud: [audField.toString()],
+      nonce: [nonceField.toString()],
+      salt: [saltField.toString()],
 
       // zkLogin specific inputs
-      addressHash: addressHash.toString(),
-      maxEpoch: maxEpoch.toString(),
-      currentEpoch: '1000' // Would be dynamic
+      address_hash: [addressHash], // Provide as array to match circuit expectation
+      maxEpoch: [maxEpoch.toString()],
+      currentEpoch: ['1000'] // Would be dynamic
     };
   }
 }
