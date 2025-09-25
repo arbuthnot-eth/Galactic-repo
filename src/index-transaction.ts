@@ -41,5 +41,3 @@ if (window.SuiSDK) {
 } else {
   console.error('SuiSDK not found - transaction tier cannot load without core tier');
 }
-
-console.log('📦 Transaction SDK tier loaded - wallet operations ready');

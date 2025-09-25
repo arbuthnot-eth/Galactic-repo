@@ -772,20 +772,22 @@
             });
         }
 
+        function formatAddressShort(address) {
+            if (!address || address.length <= 12) return address || '';
+            return `${address.slice(0, 8)}…${address.slice(-4)}`;
+        }
+
         async function handleZkLoginConnect() {
             try {
-                logOutput('🔐 Starting zkLogin (Google)...');
+                logOutput('Starting Google zkLogin…');
                 await ensureSdkReady();
                 if (!suiClient) {
                     await initializeSuiClient();
                 }
 
                 pendingZkLoginContext = await prepareZkLoginContext();
-                logOutput(`🪪 Opening Google OAuth... (nonce source: ${pendingZkLoginContext.provider || 'local'})`);
-
                 const authUrl = buildZkLoginAuthUrl(pendingZkLoginContext.nonce);
                 const jwt = await openOAuthPopup(authUrl);
-                logOutput('✅ Received id_token from provider');
 
                 await ensureZkLoginHelpers();
 
@@ -796,10 +798,7 @@
 
                 const decodedJwt = window.SuiSDK.ZkLogin.decodeJwt(jwt);
                 validateZkLoginJwt(decodedJwt, pendingZkLoginContext.nonce, ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID);
-                logOutput('✅ JWT verified successfully');
-
-                // Now prompt for password after JWT verification
-                logOutput('🔐 Prompting for password to derive zkLogin salt...');
+                logOutput('Google identity token verified.');
 
                 // Prepare helper references for salt/proof handling
                 let getSaltFromSessionStorageFunc;
@@ -830,8 +829,6 @@
                             : {}
                     );
 
-                    logOutput('🔐 Deriving salt from password + JWT (sub + iss + aud)...');
-
                     try {
                         let saltResult;
                         if (typeof window.storeSaltInSessionStorage === 'function') {
@@ -847,12 +844,14 @@
 
                         identityHash = saltResult.identityHash;
                         passwordSalt = saltResult.salt;
-                        logOutput('✅ App-specific salt generated and encrypted in session storage');
+                        if (passwordAttempts > 0) {
+                            logOutput('Password accepted; session unlocked.');
+                        }
                     } catch (error) {
                         const message = (error && error.message) ? error.message : String(error);
                         if (message.includes('Incorrect password')) {
                             passwordAttempts += 1;
-                            logOutput('⚠️ Password did not match stored zkLogin data. Prompting again...');
+                            logOutput('Password incorrect; try again.');
                             identityHash = null;
                             passwordSalt = null;
                             continue;
@@ -905,7 +904,6 @@
                         : '');
 
                 // First establish wallet connection without proof
-                logOutput('🔗 Connecting zkLogin wallet...');
                 currentWallet = {
                     address: suiAddress,
                     type: 'zkLogin',
@@ -936,7 +934,7 @@
                 document.getElementById('walletInfo').style.display = 'block';
                 updateWalletConnectionControls(true);
                 document.getElementById('walletType').textContent = `zkLogin (${currentWallet.provider})`;
-                logOutput(`🎉 zkLogin connected as ${suiAddress}`);
+                logOutput(`zkLogin wallet connected (${formatAddressShort(suiAddress)}).`);
                 await getWalletBalance();
 
                 // Now generate the zkLogin proof after wallet connection is established
@@ -944,6 +942,7 @@
                 let signatureInputs = null;
                 let proverDetails = null;
                 let cachedProofPayload = null;
+                let proofLoadedFromCache = false;
                 const cachedSession = sessionStorage.getItem('galactic:zkLogin');
                 if (cachedSession) {
                     try {
@@ -951,9 +950,8 @@
                         if (sessionData &&
                             sessionData.identityHash === identityHash &&
                             sessionData.address === suiAddress &&
-                            sessionData.jwt === jwt &&
                             sessionData.hasEncryptedProof &&
-                            sessionData.maxEpoch >= signatureMaxEpoch) {
+                            Number(sessionData.maxEpoch) >= signatureMaxEpoch) {
                             let decryptProofFunc;
                             if (typeof window.decryptProof === 'function') {
                                 decryptProofFunc = window.decryptProof;
@@ -979,8 +977,8 @@
                                 currentWallet.zkLogin.prover = proverDetails;
                                 currentWallet.zkLogin.hasEncryptedProof = true;
                                 currentWallet.zkLogin.canSign = true;
-                                logOutput('✅ Using password-protected zkLogin proof from session storage');
-                                logOutput(`🔏 Local zkLogin proof valid until epoch ${signatureMaxEpoch || '(unknown)'}.`);
+                                proofLoadedFromCache = true;
+                                logOutput(`Cached zkLogin proof loaded (valid through epoch ${signatureMaxEpoch || '(unknown)'}).`);
                             }
                         }
                     } catch (parseError) {
@@ -990,7 +988,6 @@
 
                 if (!signatureInputs) {
                     // Generate fresh proof
-                    logOutput('🔄 Generating fresh local zkLogin proof...');
                     try {
                         // Validate epoch before attempting proof generation
                         if (!suiClient) await initializeSuiClient();
@@ -1003,10 +1000,7 @@
                             throw new Error(`zkLogin proof expired: current epoch ${currentEpoch} >= maxEpoch ${maxEpoch}. Please reconnect to generate a fresh proof.`);
                         }
 
-                        logOutput(`✅ Epoch validation passed: current ${currentEpoch} < max ${maxEpoch}`);
-
                         const startTime = Date.now();
-                        logOutput('🔧 Starting simplified zkLogin proof generation...');
 
                         // Use the bundled approach for proof generation
                         let deriveEphemeralKey;
@@ -1058,8 +1052,6 @@
                                 randomness: randomnessString,
                                 ephemeralKey: proofComputation.ephemeralKey
                             };
-
-                            logOutput('✅ Simplified zkLogin proof generated successfully');
                         } catch (proofError) {
                             logOutput('❌ Simplified proof generation failed: ' + proofError.message, true);
                             throw proofError;
@@ -1068,8 +1060,6 @@
                         const actualDuration = freshProofResult?.durationMs ?? 0;
                         if (!freshProofResult || !freshProofResult.signatureInputs) {
                             logOutput('⚠️ Proof generation returned no signature inputs');
-                        } else {
-                            logOutput(`🔧 Simplified proof generation completed in ${actualDuration}ms`);
                         }
 
                         signatureInputs = freshProofResult?.signatureInputs || null;
@@ -1098,13 +1088,9 @@
                         currentWallet.zkLogin.canSign = Boolean(signatureInputs);
 
                         // Update the success message based on whether it was cached or real generation
-                        const wasLikelyCached = actualDuration < 2000;
-                        if (wasLikelyCached) {
-                            logOutput(`✅ zkLogin proof ready in ${actualDuration}ms (cached/fallback)`);
-                        } else {
-                            logOutput(`✅ zkLogin proof generated in ${actualDuration}ms`);
+                        if (!proofLoadedFromCache) {
+                            logOutput(`Generated zkLogin proof in ${actualDuration} ms (valid through epoch ${signatureMaxEpoch || '(unknown)'}).`);
                         }
-                        logOutput(`🔏 Local zkLogin proof ready. Transactions can be signed until epoch ${signatureMaxEpoch || '(unknown)'}.`);
                     } catch (proverError) {
                         logOutput(`⚠️ Local proof generation failed: ${proverError.message}`);
                         logOutput('📍 Wallet will be read-only without proof generation capability.');
@@ -1118,25 +1104,18 @@
                         identityHash,
                         address: currentWallet.address,
                         provider: currentWallet.provider,
-                        jwt: currentWallet.zkLogin.jwt,
-                        payload: currentWallet.zkLogin.payload,
-                        salt: currentWallet.zkLogin.salt,
-                        addressSeed: currentWallet.zkLogin.addressSeed,
-                        publicIdentifier: currentWallet.zkLogin.publicIdentifier,
-                        publicKey: currentWallet.zkLogin.publicKey,
-                        nonce: currentWallet.zkLogin.nonce,
-                        randomness: currentWallet.zkLogin.randomness,
                         maxEpoch: currentWallet.zkLogin.maxEpoch,
-                        ephemeralPublicKey: currentWallet.zkLogin.ephemeralPublicKey,
                         connectedAt: currentWallet.zkLogin.connectedAt,
                         expiresAt: currentWallet.zkLogin.expiresAt,
                         hasEncryptedProof: Boolean(currentWallet.zkLogin.canSign),
                         proofUpdatedAt: currentWallet.zkLogin.prover?.receivedAt || Date.now(),
-                        prover: currentWallet.zkLogin.prover,
-                        canSign: currentWallet.zkLogin.canSign
+                        prover: currentWallet.zkLogin.prover ? {
+                            provider: currentWallet.zkLogin.prover.provider,
+                            durationMs: currentWallet.zkLogin.prover.durationMs,
+                            receivedAt: currentWallet.zkLogin.prover.receivedAt
+                        } : null
                     };
                     sessionStorage.setItem('galactic:zkLogin', JSON.stringify(zkLoginSessionData));
-                    logOutput('🔐 zkLogin proof sealed with password-derived key in session storage');
                 } catch (storageError) {
                     logOutput('Warning: Failed to store zkLogin proof in session storage: ' + storageError.message, false);
                 }
@@ -1202,18 +1181,18 @@
                     type: 'zkLogin',
                     provider: sessionData.provider,
                     zkLogin: {
-                        jwt: sessionData.jwt,
-                        payload: sessionData.payload,
-                        salt: sessionData.salt,
-                        addressSeed: sessionData.addressSeed,
-                        publicIdentifier: sessionData.publicIdentifier,
-                        publicKey: sessionData.publicKey,
-                        nonce: sessionData.nonce,
-                        randomness: sessionData.randomness,
+                        jwt: null,
+                        payload: null,
+                        salt: null,
+                        addressSeed: null,
+                        publicIdentifier: null,
+                        publicKey: null,
+                        nonce: null,
+                        randomness: null,
                         maxEpoch: sessionData.maxEpoch,
-                        ephemeralPublicKey: sessionData.ephemeralPublicKey,
-                        connectedAt: sessionData.connectedAt,
-                        expiresAt: sessionData.expiresAt,
+                        ephemeralPublicKey: null,
+                        connectedAt: sessionData.connectedAt || Date.now(),
+                        expiresAt: sessionData.expiresAt || null,
                         signatureInputs: null,
                         prover: sessionData.prover || null,
                         ephemeralKeypair: null, // Keypair cannot be serialized, will need to regenerate if needed
@@ -1233,7 +1212,7 @@
                 logOutput('🔐 zkLogin session restored from storage');
                 logOutput(`🎉 Reconnected as ${sessionData.address}`);
                 if (sessionData.hasEncryptedProof) {
-                    logOutput(`🔒 Password-protected zkLogin proof available. Enter your zkLogin password to unlock signing (valid until epoch ${sessionData.maxEpoch || '(unknown)'}).`);
+                    logOutput(`🔒 zkProof (password-protected) available. Unlock for signing (valid til epoch ${sessionData.maxEpoch || '(unknown)'}).`);
                 } else {
                     logOutput('⚠️ Session restored but signing capability unavailable');
                 }
@@ -1913,7 +1892,6 @@
                 const balance = await suiClient.getBalance({ owner: currentWallet.address });
                 const suiBalance = Number(balance.totalBalance) / 1_000_000_000;
                 document.getElementById('currentBalance').textContent = `${suiBalance} SUI`;
-                logOutput(`Balance: ${suiBalance} SUI`);
             } catch (error) {
                 logOutput('Error getting balance: ' + error.message, true);
             }
@@ -2813,7 +2791,7 @@
                 showCurrentWalletAddress('', { skipReverse: true });
                 document.getElementById('currentBalance').textContent = 'Loading...';
 
-                logOutput('Wallet disconnected');
+                logOutput('Wallet disconnected.');
             } catch (error) {
                 logOutput('Error disconnecting wallet: ' + error.message, true);
             }

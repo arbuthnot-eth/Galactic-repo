@@ -16,9 +16,6 @@ import {
   toZkLoginPublicIdentifier
 } from '@mysten/sui/zklogin';
 
-// Poseidon hash function for zkLogin
-import { poseidon1 } from 'poseidon-lite/poseidon1';
-
 // Advanced tier functions
 const AdvancedZkLogin = {
   getExtendedEphemeralPublicKey,
@@ -29,7 +26,6 @@ const AdvancedZkLogin = {
   genAddressSeed,
   decodeJwt,
   toZkLoginPublicIdentifier,
-  poseidon1,
 };
 
 // Update the global SDK with advanced functionality
@@ -43,6 +39,3 @@ if (window.SuiSDK) {
 } else {
   throw new Error('SuiSDK not found - advanced tier cannot load without core tier');
 }
-
-// Also expose poseidon1 directly on window for easy access
-(window as any).poseidon1 = poseidon1;

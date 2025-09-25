@@ -37,7 +37,6 @@ const CoreZkLogin = {
   genAddressSeed: null,
   decodeJwt: null,
   toZkLoginPublicIdentifier: null,
-  poseidon1: null,
 };
 
 const CoreSuiNS = {
@@ -75,5 +74,3 @@ if (window.SuiSDK) {
     LocalZkLogin: CoreLocalZkLogin,
   };
 }
-
-console.log('📦 Core SDK tier loaded - network connection ready');
