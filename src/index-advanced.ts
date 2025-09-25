@@ -19,9 +19,6 @@ import {
 // Poseidon hash function for zkLogin
 import { poseidon1 } from 'poseidon-lite/poseidon1';
 
-// Local zkLogin helper
-import LocalZkLogin from './local-zklogin';
-
 // Advanced tier functions
 const AdvancedZkLogin = {
   getExtendedEphemeralPublicKey,
@@ -35,8 +32,6 @@ const AdvancedZkLogin = {
   poseidon1,
 };
 
-const AdvancedLocalZkLogin = LocalZkLogin;
-
 // Update the global SDK with advanced functionality
 if (window.SuiSDK) {
   // Add keypair functionality to Sui namespace
@@ -45,7 +40,6 @@ if (window.SuiSDK) {
 
   // Replace the ZkLogin object with full functionality
   window.SuiSDK.ZkLogin = AdvancedZkLogin;
-  window.SuiSDK.LocalZkLogin = AdvancedLocalZkLogin;
 } else {
   throw new Error('SuiSDK not found - advanced tier cannot load without core tier');
 }
