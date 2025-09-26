@@ -1024,8 +1024,8 @@
             const effectiveTitle = title || `${providerLabel} Password`;
             const effectiveDescription = description || (
                 hasCache
-                    ? `Enter the password you previously set to unlock your ${providerLabel} zkLogin identity.`
-                    : `Create a password to protect your ${providerLabel} zkLogin credentials.`
+                    ? `Enter the password previously set to unlock this ${providerLabel} zkLogin identity.`
+                    : `Create a password to protect these ${providerLabel} zkLogin credentials.`
             );
 
             return new Promise((resolve, reject) => {
@@ -1372,9 +1372,18 @@
                 logOutput(`zkLogin wallet connected (${formatAddressShort(suiAddress)}).`);
                 await getWalletBalance();
 
-                // Generate proof on-demand (simplified for now - full proof generation can be done when signing is needed)
-                logOutput('✅ zkLogin connection established. Proof generation will occur on-demand for signing.');
-                currentWallet.zkLogin.canSign = true; // Enable signing capability
+                try {
+                    logOutput('⚙️ Generating fresh zkLogin proof...');
+                    const { generateFreshProof } = zkloginHelpers;
+                    const proofResult = await generateFreshProof(provider);
+                    currentWallet.zkLogin.signatureInputs = proofResult.publicSignals;
+                    currentWallet.zkLogin.prover = proofResult.proof;
+                    currentWallet.zkLogin.canSign = true;
+                    logOutput('✅ zkLogin connection established. Proof ready for signing.');
+                } catch (proofError) {
+                    logOutput('❌ Failed to generate zkLogin proof: ' + (proofError?.message || proofError), true);
+                    console.warn('zkLogin proof generation failed:', proofError);
+                }
 
                 try {
                     await findMyWallets();
@@ -2250,52 +2259,42 @@
                         logOutput('Found window.sui, attempting proper connection...');
                         try {
                             // Use the standard connection flow
-                            const hasConnectFeature = window.sui.features && window.sui.features['standard:connect'];
-                            const hasLegacyConnect = typeof window.sui.connect === 'function';
-                            
-                            if (hasConnectFeature) {
-                                logOutput('Using standard:connect feature...');
-                                await window.sui.features['standard:connect'].connect();
-                            } else if (hasLegacyConnect) {
-                                logOutput('Using legacy connect method...');
-                                await window.sui.connect();
-                            } else if (window.sui.requestPermissions) {
-                                logOutput('Using requestPermissions method...');
-                                await window.sui.requestPermissions();
-                            }
-                            
-                            // Get accounts
-                            let accounts = [];
-                            if (window.sui.accounts) {
-                                accounts = window.sui.accounts;
-                            } else if (window.sui.getAccounts) {
-                                accounts = await window.sui.getAccounts();
-                            } else if (window.sui.features && window.sui.features['standard:connect'] && window.sui.features['standard:connect'].accounts) {
-                                accounts = window.sui.features['standard:connect'].accounts;
-                            }
-                            
-                            if (accounts && accounts.length > 0) {
-                                const account = accounts[0];
-                                currentWallet = { 
-                                    address: account.address, 
-                                    type: 'wallet_standard',
-                                    wallet: window.sui
-                                };
-                                connectedWalletStandard = window.sui;
-                                
-                                showCurrentWalletAddress(account.address);
-                                document.getElementById('walletInfo').style.display = 'block';
-                                updateWalletConnectionControls(true);
-                                document.getElementById('walletType').textContent = 'Sui Wallet Standard';
-                                
-                                logOutput('✅ Successfully connected via window.sui!');
-                                logOutput(`Address: ${account.address}`);
-                                await getWalletBalance();
-                                return;
-                            }
-                        } catch (suiError) {
-                            logOutput('window.sui connection failed: ' + suiError.message, true);
+                        const connectFeature = window.sui.features && window.sui.features['standard:connect'];
+                        if (!connectFeature || typeof connectFeature.connect !== 'function') {
+                            throw new Error('window.sui does not expose standard:connect. Please update the wallet.');
                         }
+
+                        logOutput('Using standard:connect feature...');
+                        await connectFeature.connect();
+
+                        const accounts = connectFeature.accounts || (typeof connectFeature.getAccounts === 'function'
+                            ? await connectFeature.getAccounts()
+                            : []);
+
+                        if (!accounts || !accounts.length) {
+                            throw new Error('No accounts returned via standard:connect.');
+                        }
+
+                        const account = accounts[0];
+                        currentWallet = {
+                            address: account.address,
+                            type: 'wallet_standard',
+                            wallet: window.sui
+                        };
+                        connectedWalletStandard = window.sui;
+
+                        showCurrentWalletAddress(account.address);
+                        document.getElementById('walletInfo').style.display = 'block';
+                        updateWalletConnectionControls(true);
+                        document.getElementById('walletType').textContent = 'Sui Wallet Standard';
+
+                        logOutput('✅ Successfully connected via window.sui!');
+                        logOutput(`Address: ${account.address}`);
+                        await getWalletBalance();
+                        return;
+                    } catch (suiError) {
+                        logOutput('window.sui connection failed: ' + suiError.message, true);
+                    }
                     }
                     
                     // Method 3: Check for wallet-specific globals
@@ -2314,26 +2313,8 @@
                                         await handleSuccessfulConnection(accounts[0], wallet, walletName);
                                         return;
                                     }
-                                }
-                                
-                                // Try legacy methods
-                                if (wallet.connect) {
-                                    await wallet.connect();
-                                } else if (wallet.requestPermissions) {
-                                    await wallet.requestPermissions();
-                                }
-                                
-                                // Get accounts
-                                let accounts = [];
-                                if (wallet.getAccounts) {
-                                    accounts = await wallet.getAccounts();
-                                } else if (wallet.accounts) {
-                                    accounts = wallet.accounts;
-                                }
-                                
-                                if (accounts && accounts.length > 0) {
-                                    await handleSuccessfulConnection(accounts[0], wallet, walletName);
-                                    return;
+                                } else {
+                                    logOutput(`${walletName} does not expose wallet-standard connect features; skipping.`);
                                 }
                             } catch (walletError) {
                                 logOutput(`${walletName} connection failed: ${walletError.message}`, true);
@@ -2929,26 +2910,23 @@
         async function connectViaWindowSui() {
             if (!window.sui) throw new Error('window.sui not detected');
             try {
-                const hasConnectFeature = window.sui.features && window.sui.features['standard:connect'];
-                const hasLegacyConnect = typeof window.sui.connect === 'function';
-                if (hasConnectFeature) {
-                    try { await window.sui.features['standard:connect'].disconnect?.(); } catch (_) {}
-                    await window.sui.features['standard:connect'].connect({ silent: false });
-                } else if (hasLegacyConnect) {
-                    await window.sui.connect();
-                } else if (window.sui.requestPermissions) {
-                    await window.sui.requestPermissions();
+                const connectFeature = window.sui.features && window.sui.features['standard:connect'];
+                if (!connectFeature || typeof connectFeature.connect !== 'function') {
+                    throw new Error('window.sui does not expose standard:connect');
                 }
-                let accounts = [];
-                if (window.sui.accounts) accounts = window.sui.accounts;
-                else if (window.sui.getAccounts) accounts = await window.sui.getAccounts();
-                else if (window.sui.features && window.sui.features['standard:connect'] && window.sui.features['standard:connect'].accounts) {
-                    accounts = window.sui.features['standard:connect'].accounts;
-                }
-                if (!accounts || !accounts.length) throw new Error('No accounts found in window.sui');
-                const account = accounts[0];
 
-                // Check for network mismatch (no auto-switching)
+                try { await connectFeature.disconnect?.(); } catch (_) {}
+                await connectFeature.connect({ silent: false });
+
+                const accounts = connectFeature.accounts || (typeof connectFeature.getAccounts === 'function'
+                    ? await connectFeature.getAccounts()
+                    : []);
+
+                if (!accounts || !accounts.length) {
+                    throw new Error('No accounts returned via standard:connect');
+                }
+
+                const account = accounts[0];
                 const hasMismatch = checkWalletNetworkMismatch(window.sui);
 
                 currentWallet = { address: account.address, type: 'wallet_standard', wallet: window.sui };
@@ -2960,7 +2938,6 @@
                 logOutput('✅ Connected via window.sui');
                 await getWalletBalance();
 
-                // Automatically find wallets after successful connection
                 try {
                     await findMyWallets();
                 } catch (e) {
@@ -3004,16 +2981,6 @@
                 else if (typeof phantomSui.getAccounts === 'function') {
                     accounts = await phantomSui.getAccounts();
                     logOutput('Got accounts from getAccounts()');
-                }
-                // Method 4: Check for publicKey (legacy)
-                else if (phantomSui.publicKey) {
-                    if (typeof phantomSui.publicKey.toSuiAddress === 'function') {
-                        accounts = [{ address: phantomSui.publicKey.toSuiAddress() }];
-                        logOutput('Got address from publicKey.toSuiAddress()');
-                    } else if (typeof phantomSui.publicKey.toBase58 === 'function') {
-                        accounts = [{ address: phantomSui.publicKey.toBase58() }];
-                        logOutput('Got address from publicKey.toBase58()');
-                    }
                 }
                 
                 logOutput(`Phantom Sui returned ${accounts ? accounts.length : 0} accounts`);
@@ -3144,33 +3111,6 @@
                 if (wallet.features && wallet.features['sui:signAndExecuteTransaction']) {
                     logOutput('Using sui:signAndExecuteTransaction feature...');
                     return await wallet.features['sui:signAndExecuteTransaction'].signAndExecuteTransaction(transactionData);
-                }
-                
-                // Try legacy methods (for backward compatibility)
-                if (wallet.features && wallet.features['sui:signAndExecuteTransactionBlock']) {
-                    logOutput('Using sui:signAndExecuteTransactionBlock feature...');
-                    return await wallet.features['sui:signAndExecuteTransactionBlock'].signAndExecuteTransactionBlock({
-                        transactionBlock: tx,
-                        account: { address: currentWallet.address },
-                        chain: `sui:${currentNetwork}`,
-                        options: { showEffects: true, showObjectChanges: true }
-                    });
-                }
-                
-                // Try direct method access
-                if (typeof wallet.signAndExecuteTransactionBlock === 'function') {
-                    logOutput('Using direct signAndExecuteTransactionBlock method...');
-                    return await wallet.signAndExecuteTransactionBlock({
-                        transactionBlock: tx,
-                        account: { address: currentWallet.address },
-                        chain: `sui:${currentNetwork}`,
-                        options: { showEffects: true, showObjectChanges: true }
-                    });
-                }
-                
-                if (typeof wallet.signAndExecuteTransaction === 'function') {
-                    logOutput('Using direct signAndExecuteTransaction method...');
-                    return await wallet.signAndExecuteTransaction(transactionData);
                 }
                 
                 throw new Error('Wallet does not support transaction signing. Please ensure your wallet supports the Sui Wallet Standard.');

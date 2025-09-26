@@ -738,23 +738,6 @@ function getIssuerUrl(provider: string): string {
   }
 }
 
-// Legacy function - now redirects to generateFreshProof
-async function deriveEphemeralKey(userId: string, providerOrIss: string, maxEpoch: number): Promise<any> {
-  // Handle both provider names and issuer URLs for backwards compatibility
-  const provider = providerOrIss.includes('http') ? getProviderFromIssuer(providerOrIss) : providerOrIss;
-
-  const jwt = await loadJwt(provider);
-  const claims = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
-
-  if (claims.sub !== userId) {
-    throw new Error('User ID mismatch with stored claims');
-  }
-
-  const { proof, publicSignals } = await generateFreshProof(provider);
-  const ephemeralKey = publicSignals[0]; // Ed25519 key
-  return { proof, ephemeralKey, publicSignals };
-}
-
 // Ensure all functions are available globally
 if (typeof window !== 'undefined') {
   (window as any).WitnessCalculatorBuilder = WitnessCalculatorBuilder;
@@ -766,7 +749,6 @@ if (typeof window !== 'undefined') {
   (window as any).storeVerifiedJwt = storeVerifiedJwt;
   (window as any).getSaltForClaims = getSaltForClaims;
   (window as any).generateFreshProof = generateFreshProof;
-  (window as any).deriveEphemeralKey = deriveEphemeralKey;
   (window as any).loadJwt = loadJwt;
 
   // Expose security utilities globally
@@ -783,7 +765,6 @@ export {
   storeVerifiedJwt,
   getSaltForClaims,
   generateFreshProof,
-  deriveEphemeralKey,
   loadJwt,
   hashSubSaltIss,
   hashIss,
