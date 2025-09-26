@@ -1349,16 +1349,21 @@
                 logOutput(`zkLogin wallet connected (${formatAddressShort(suiAddress)}).`);
                 await getWalletBalance();
 
+                const proofStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
                 try {
                     logOutput('⚙️ Generating fresh zkLogin proof...');
                     const { generateFreshProof } = zkloginHelpers;
                     const proofResult = await generateFreshProof(provider);
+                    const proofEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                    const proofMs = Math.max(1, Math.round(proofEnd - proofStart));
                     currentWallet.zkLogin.signatureInputs = proofResult.publicSignals;
                     currentWallet.zkLogin.prover = proofResult.proof;
                     currentWallet.zkLogin.canSign = true;
-                    logOutput('✅ zkLogin connection established. Proof ready for signing.');
+                    logOutput(`✅ zkProof generated (${proofMs}ms).`);
                 } catch (proofError) {
-                    logOutput('❌ Failed to generate zkLogin proof: ' + (proofError?.message || proofError), true);
+                    const proofEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                    const proofMs = Math.max(1, Math.round(proofEnd - proofStart));
+                    logOutput(`❌ Failed to generate zkLogin proof after ${proofMs}ms: ${proofError?.message || proofError}`, true);
                     console.warn('zkLogin proof generation failed:', proofError);
                 }
 
