@@ -7,14 +7,14 @@
 
 - **Project Structure & Module Organization**
   - `src/`: TypeScript sources. `index.ts` bundles Mysten SDKs to `window.SuiSDK`.
-  - `src/smartwallet-dev.html`: SmartWallet development HTML template served by the dev server. This is the primary editable HTML surface for SmartWallet functionality. Uses a shared Roster object for membership indexing; UI variables and docs consistently use `roster` naming (e.g., `rosterId`).
+  - `src/smartwallet-dev.html`: SmartWallet development HTML template served by the dev server. This is the primary editable surface for wallet connection flows, zkLogin handling, and in-browser tooling.
   - `dist/smartwallet.html`: SmartWallet single-file build output (auto-generated from `src/smartwallet-dev.html` during injection/build; never edit directly).
   - `dist/`: Build output (`sui-sdk-bundle.iife.js`).
   - `scripts/`: Dev utilities (`tunnel-dev.sh`).
   - Config: `vite.config.ts`, `tsconfig.json`. Auth callback assets under `auth/`.
 
 - **CRITICAL Build Workflow**:
-  - **ONLY EDIT `src/smartwallet-dev.html`** - This is the primary development template for SmartWallet functionality. It must stay in sync with the roster-driven UX and is the source of truth for SmartWallet markup and scripting.
+  - **ONLY EDIT `src/smartwallet-dev.html`** - This is the primary development template for SmartWallet functionality. Changes here must stay aligned with the current connection UI, zkLogin prompts, and modal behaviors.
   - **NEVER EDIT `dist/smartwallet.html`** - This file is auto-generated from `src/smartwallet-dev.html` by the HTML injector during `npm run inject` and `npm run build`.
   - Build process: `npm run build` compiles TypeScript and injects tiered SDK bundles (`shell`, `core`, `transaction`, `advanced`) into `dist/smartwallet.html` (via the injector pipeline).
 
@@ -85,7 +85,7 @@
   - Mysten SDK integration and API calls
   - Browser API exposure via `window.SuiSDK`
   - IIFE bundle functionality
-  - SmartWallet template behaviors defined in `src/smartwallet-dev.html` (roster rendering, action flows)
+  - SmartWallet template behaviors defined in `src/smartwallet-dev.html` (connect flows, modal interactions, logging panel)
   - Authentication callback handling
   - **zkLogin Testing**:
     - Google OAuth JWT validation and parsing
@@ -171,7 +171,7 @@
 #### Integration Tests
 1. **Development Server**: Test HMR functionality with `npm run dev`
 2. **Tunnel Access**: Verify public URL access with `npm run tunnel-dev`
-3. **SmartWallet Preview**: Load `src/smartwallet-dev.html` via the dev server to validate roster interactions, modal flows, and SmartWallet-specific scripts before injection. After build, test `dist/smartwallet.html`.
+3. **SmartWallet Preview**: Load `src/smartwallet-dev.html` via the dev server to validate wallet connect flows, modal behavior, and SmartWallet-specific scripts before injection. After build, test `dist/smartwallet.html`.
 4. **Production Build**: Test final generated `dist/smartwallet.html` in multiple browsers
 
 ### 7. Environment Details - Development Setup
