@@ -62,12 +62,24 @@ type JwtClaims = {
   nonce?: string;
 };
 
-type ClaimsEntry = {
-  encryptedClaims: string;
-  claimsIv: string;
+type JwtEntry = {
+  encryptedJwt: string;
+  jwtIv: string;
+};
+
+type PasswordValidationResult = {
+  provider: string;
+  iss: string;
+  key: CryptoKey;
+  fromCache: boolean;
+};
+
+type PasswordValidationOptions = {
+  requireExistingEntry?: boolean;
 };
 
 const passwordKeyCache = new Map<string, CryptoKey>();
+const saltMemoryCache = new Map<string, Uint8Array>();
 const passwordRetryCount = new Map<string, number>();
 const passwordCooldownUntil = new Map<string, number>();
 let idleTimeoutHandle: number | null = null;
@@ -76,9 +88,45 @@ let idleListenersRegistered = false;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function getIssuerKey(iss: string): string {
-  return `${ZKLOGIN_PREFIX}:${iss}`;
+function getProviderKey(provider: string): string {
+  return `${ZKLOGIN_PREFIX}:${provider}`;
 }
+
+function getIssuerFromProvider(provider: string): string {
+  switch (provider.toLowerCase()) {
+    case 'google':
+      return 'https://accounts.google.com';
+    case 'microsoft':
+      return 'https://login.microsoftonline.com';
+    default:
+      throw new Error(`Unknown provider: ${provider}`);
+  }
+}
+
+function getProviderFromIssuer(iss: string): string {
+  switch (iss) {
+    case 'https://accounts.google.com':
+      return 'google';
+    case 'https://login.microsoftonline.com':
+      return 'microsoft';
+    default:
+      throw new Error(`Unknown issuer: ${iss}`);
+  }
+}
+
+function describeIssuer(iss: string): string {
+  try {
+    return getProviderFromIssuer(iss);
+  } catch {
+    try {
+      return new URL(iss).hostname;
+    } catch {
+      return iss;
+    }
+  }
+}
+
+// JWT parsing is handled by parseJWT function in smartwallet-dev.html
 
 function normalizeAudienceClaim(aud: unknown): string {
   if (Array.isArray(aud)) {
@@ -90,52 +138,54 @@ function normalizeAudienceClaim(aud: unknown): string {
   return '';
 }
 
-async function sha256Bytes(input: string): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(input));
-  return new Uint8Array(digest);
+// Removed unused sha256Bytes function
+
+// Base64 utilities for encryption/decryption
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const binary = String.fromCharCode(...new Uint8Array(buffer));
+  return btoa(binary);
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  return arrayBufferToBase64(bytes.buffer);
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
 }
 
-function base64ToBytes(base64: string): Uint8Array {
-  return new Uint8Array(base64ToArrayBuffer(base64));
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function loadClaimsEntry(iss: string): ClaimsEntry | null {
+function loadJwtEntry(provider: string): JwtEntry | null {
   try {
-    const key = getIssuerKey(iss);
+    const key = getProviderKey(provider);
     const raw = localStorage.getItem(key);
+
     if (!raw) return null;
-    return JSON.parse(raw) as ClaimsEntry;
+    return JSON.parse(raw) as JwtEntry;
   } catch (error) {
-    console.warn(`Failed to parse claims entry for ${iss}. Removing.`, error);
-    localStorage.removeItem(getIssuerKey(iss));
+    console.warn(`Failed to parse JWT entry for ${provider}. Removing.`, error);
+    localStorage.removeItem(getProviderKey(provider));
     return null;
   }
 }
 
-function saveClaimsEntry(iss: string, entry: ClaimsEntry) {
-  const key = getIssuerKey(iss);
+function saveJwtEntry(provider: string, entry: JwtEntry) {
+  const key = getProviderKey(provider);
   localStorage.setItem(key, JSON.stringify(entry));
 }
 
-function getActiveIssuer(): string | null {
+function getActiveProvider(): string | null {
   return localStorage.getItem(ACTIVE_IDENTITY_KEY);
 }
 
-function setActiveIssuer(iss: string) {
-  localStorage.setItem(ACTIVE_IDENTITY_KEY, iss);
+function setActiveProvider(provider: string) {
+  localStorage.setItem(ACTIVE_IDENTITY_KEY, provider);
 }
+
+
+// Removed unused getActiveIssuer function (replaced by getActiveProvider)
 
 function clearSensitiveSessionData() {
   passwordKeyCache.clear();
-  localStorage.removeItem(ACTIVE_IDENTITY_KEY);
+  saltMemoryCache.clear();
 }
 
 function scheduleIdleTeardown() {
@@ -158,16 +208,16 @@ function scheduleIdleTeardown() {
   }
 }
 
-function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i];
-  }
-  return diff === 0;
-}
 
 async function deriveSaltFromClaims(password: string, claims: JwtClaims): Promise<Uint8Array> {
+  // Check for cached salt by provider first
+  const provider = getProviderFromIssuer(claims.iss);
+  const cachedSalt = saltMemoryCache.get(provider);
+  if (cachedSalt) {
+    return cachedSalt;
+  }
+
+  // Derive salt from password and claims
   const aud = normalizeAudienceClaim(claims.aud);
   const saltSource = `${SALT_DERIVATION_PREFIX}::${claims.iss}::${claims.sub}::${aud}`;
   const saltHash = await crypto.subtle.digest('SHA-256', encoder.encode(saltSource));
@@ -187,7 +237,12 @@ async function deriveSaltFromClaims(password: string, claims: JwtClaims): Promis
     hash: PBKDF2_DIGEST
   }, passwordKey, 256);
 
-  return new Uint8Array(derivedBits);
+  const salt = new Uint8Array(derivedBits);
+
+  // Cache salt in memory
+  saltMemoryCache.set(provider, salt);
+
+  return salt;
 }
 
 async function deriveEncryptionKey(password: string, iss: string): Promise<CryptoKey> {
@@ -236,6 +291,13 @@ async function decryptWithKey(key: CryptoKey, base64Cipher: string, base64Iv: st
   return new Uint8Array(decrypted);
 }
 
+// Global password prompt function that can be overridden
+let globalPasswordPrompt: ((iss: string, attempts: number) => Promise<string>) | null = null;
+
+function setPasswordPromptFunction(fn: (iss: string, attempts: number) => Promise<string>) {
+  globalPasswordPrompt = fn;
+}
+
 async function promptForPassword(iss: string): Promise<string> {
   // Check cooldown
   const cooldownEnd = passwordCooldownUntil.get(iss) || 0;
@@ -244,17 +306,28 @@ async function promptForPassword(iss: string): Promise<string> {
     throw new Error(`Too many failed attempts. Try again in ${remainingSeconds} seconds.`);
   }
 
+  const retryCount = passwordRetryCount.get(iss) || 0;
+
+  console.log(`🔑 PASSWORD PROMPT #${retryCount + 1} for ${describeIssuer(iss)}`);
+
+  // Use custom prompt if available, otherwise fall back to basic prompt
+  if (globalPasswordPrompt) {
+    return await globalPasswordPrompt(iss, retryCount);
+  }
+
+  // Fallback to basic browser prompt
   return new Promise((resolve, reject) => {
     const issuerName = iss === 'https://accounts.google.com' ? 'Google' : new URL(iss).hostname;
-    const retryCount = passwordRetryCount.get(iss) || 0;
     const promptText = retryCount > 0
       ? `Invalid password (${retryCount}/5 attempts). Enter password for ${issuerName} zkLogin:`
       : `Enter password for ${issuerName} zkLogin:`;
 
     const password = prompt(promptText);
     if (password === null) {
+      console.log(`🔑 Password prompt cancelled for ${describeIssuer(iss)}`);
       reject(new Error('Password prompt cancelled'));
     } else if (password.length < 8) {
+      console.log(`🔑 Password too short provided in prompt for ${describeIssuer(iss)}`);
       reject(new Error('Password must be at least 8 characters'));
     } else {
       resolve(password);
@@ -280,50 +353,131 @@ function handlePasswordSuccess(iss: string): void {
 
 async function ensurePasswordKey(iss: string): Promise<CryptoKey> {
   const cached = passwordKeyCache.get(iss);
-  if (cached) return cached;
+  const provider = describeIssuer(iss);
+  if (cached) {
+    console.log(`🔑 Using CACHED password key for ${provider}`);
+    return cached;
+  }
 
-  const password = await promptForPassword(iss);
-  const key = await deriveEncryptionKey(password, iss);
+  console.log(`🔑 No cached key for ${provider}, prompting for password...`);
+  const providerSlug = getProviderFromIssuer(iss);
 
-  try {
-    const entry = loadClaimsEntry(iss);
-    if (entry) {
-      await decryptWithKey(key, entry.encryptedClaims, entry.claimsIv);
+  while (true) {
+    let password: string;
+
+    try {
+      password = await promptForPassword(iss);
+    } catch (error: any) {
+      // Bubble up cancellations or cooldown errors immediately
+      if (error?.message === 'Password prompt cancelled' || error?.message?.includes('Too many failed attempts')) {
+        throw error;
+      }
+
+      handlePasswordFailure(iss);
+      console.warn(`🔑 Password prompt error for ${provider}:`, error?.message || error);
+      continue;
     }
-    handlePasswordSuccess(iss);
-    passwordKeyCache.set(iss, key);
-    scheduleIdleTeardown();
-    return key;
-  } catch (error) {
-    handlePasswordFailure(iss);
-    throw new Error('Invalid password');
+
+    try {
+      const { key } = await validatePasswordForProvider(providerSlug, password, { requireExistingEntry: true });
+      return key;
+    } catch (error: any) {
+      if (error?.message === 'NO_CACHED_JWT') {
+        throw new Error(`No stored JWT for provider: ${providerSlug}`);
+      }
+
+      if (error?.message === 'Invalid password') {
+        console.warn(`🔑 Invalid password for ${provider}, retrying...`);
+        continue;
+      }
+
+      throw error;
+    }
   }
 }
 
-async function storeClaims(password: string, claims: JwtClaims): Promise<void> {
+async function validatePasswordForProvider(provider: string, password: string, options: PasswordValidationOptions = {}): Promise<PasswordValidationResult> {
+  const { requireExistingEntry = false } = options;
+  const iss = getIssuerFromProvider(provider);
+
+  const key = await deriveEncryptionKey(password, iss);
+  const entry = loadJwtEntry(provider);
+  if (!entry) {
+    if (requireExistingEntry) {
+      throw new Error('NO_CACHED_JWT');
+    }
+
+    handlePasswordSuccess(iss);
+    console.log(`🔑 Accepted password for ${provider} (no cached JWT to validate yet)`);
+    return {
+      provider,
+      iss,
+      key,
+      fromCache: false
+    };
+  }
+
+  try {
+    const decryptedJwt = await decryptWithKey(key, entry.encryptedJwt, entry.jwtIv);
+    const jwtText = decoder.decode(decryptedJwt);
+    const claims = (window as any).SuiSDK.ZkLogin.decodeJwt(jwtText);
+    const salt = await deriveSaltFromClaims(password, claims);
+
+    handlePasswordSuccess(iss);
+    passwordKeyCache.set(iss, key);
+    saltMemoryCache.set(provider, salt);
+    scheduleIdleTeardown();
+    console.log(`🔑 Password validated and caches primed for ${provider}`);
+
+    return {
+      provider,
+      iss,
+      key,
+      fromCache: true
+    };
+  } catch (error: any) {
+    handlePasswordFailure(iss);
+    const failureMessage = error?.message || error;
+    console.warn(`🔑 Password validation failed for ${provider}:`, failureMessage);
+
+    if (error?.name === 'OperationError' || (typeof failureMessage === 'string' && failureMessage.includes('decrypt'))) {
+      throw new Error('Invalid password');
+    }
+
+    if (failureMessage === 'Invalid password') {
+      throw new Error('Invalid password');
+    }
+
+    throw new Error('Password validation failed. Please try again.');
+  }
+}
+
+async function storeJwt(password: string, jwt: string, provider: string): Promise<void> {
   validatePassword(password);
 
-  const key = await deriveEncryptionKey(password, claims.iss);
-  const payload = encoder.encode(JSON.stringify(claims));
+  const iss = getIssuerFromProvider(provider);
+  const key = await deriveEncryptionKey(password, iss);
+  const payload = encoder.encode(jwt);
   const { ciphertext, iv } = await encryptWithKey(key, payload);
 
-  const entry: ClaimsEntry = {
-    encryptedClaims: ciphertext,
-    claimsIv: iv
+  const entry: JwtEntry = {
+    encryptedJwt: ciphertext,
+    jwtIv: iv
   };
 
-  saveClaimsEntry(claims.iss, entry);
-  passwordKeyCache.set(claims.iss, key);
-  setActiveIssuer(claims.iss);
+  saveJwtEntry(provider, entry);
+  passwordKeyCache.set(iss, key);
+  setActiveProvider(provider);
   scheduleIdleTeardown();
 }
 
-async function loadClaims(iss: string, password?: string): Promise<JwtClaims> {
-  const entry = loadClaimsEntry(iss);
+async function loadJwt(provider: string, password?: string): Promise<string> {
+  const entry = loadJwtEntry(provider);
   if (!entry) {
-    throw new Error('No stored claims for this issuer');
+    throw new Error(`No stored JWT for provider: ${provider}`);
   }
 
+  const iss = getIssuerFromProvider(provider);
   let key: CryptoKey;
   if (password) {
     key = await deriveEncryptionKey(password, iss);
@@ -331,8 +485,16 @@ async function loadClaims(iss: string, password?: string): Promise<JwtClaims> {
     key = await ensurePasswordKey(iss);
   }
 
-  const decrypted = await decryptWithKey(key, entry.encryptedClaims, entry.claimsIv);
-  return JSON.parse(decoder.decode(decrypted));
+  try {
+    const decrypted = await decryptWithKey(key, entry.encryptedJwt, entry.jwtIv);
+    return decoder.decode(decrypted);
+  } catch (error: any) {
+    // If decryption fails, it's likely due to wrong password
+    if (error?.name === 'OperationError' || error?.message?.includes('decrypt')) {
+      throw new Error('Invalid password');
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +576,7 @@ function validateCSRFToken(token: string): boolean {
 // Validate password length
 function validatePassword(password: string): void {
   if (password.length < 8) {
-    throw new Error("Password must be at least 8 characters");
+    throw new Error('Password must be at least 8 characters');
   }
 }
 
@@ -423,47 +585,54 @@ function uint8ArrayToHex(uint8Array: Uint8Array): string {
   return Array.from(uint8Array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-// Utility functions for base64 conversion
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+// Base64 functions defined above - no duplicates needed
+
+// Store verified JWT with password protection
+async function storeVerifiedJwt(password: string, jwt: string): Promise<string> {
+  // Use official Sui SDK to decode JWT (note: this will need proper typing in production)
+  const decoded = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
+  const provider = getProviderFromIssuer(decoded.iss);
+
+  await storeJwt(password, jwt, provider);
+  return provider;
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
+// Get salt - use cached salt from memory if available
+async function getSaltForClaims(provider?: string): Promise<Uint8Array> {
+  const activeProvider = provider || getActiveProvider();
+  if (!activeProvider) throw new Error('No active zkLogin provider');
 
-// Store verified JWT claims with password protection
-async function storeVerifiedClaims(password: string, claims: JwtClaims): Promise<string> {
-  await storeClaims(password, claims);
-  return claims.iss;
-}
+  // Check memory cache first
+  const cachedSalt = saltMemoryCache.get(activeProvider);
+  if (cachedSalt) {
+    return cachedSalt;
+  }
 
-// Get salt derived from stored claims
-async function getSaltForClaims(iss?: string): Promise<Uint8Array> {
-  const activeIss = iss || getActiveIssuer();
-  if (!activeIss) throw new Error('No active zkLogin issuer');
+  // Fallback: derive salt (this should rarely happen if caching works)
+  const jwt = await loadJwt(activeProvider);
+  const decoded = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
+  const password = await promptForPassword(decoded.iss);
 
-  const claims = await loadClaims(activeIss);
-  const password = await promptForPassword(activeIss);
-
-  return await deriveSaltFromClaims(password, claims);
+  const salt = await deriveSaltFromClaims(password, decoded);
+  saltMemoryCache.set(activeProvider, salt); // Cache for next time
+  return salt;
 }
 
 // ---------------------------------------------------------------------------
 // Simplified Proof Generation Functions
 // ---------------------------------------------------------------------------
 
-// Generate fresh proof using stored claims
-async function generateFreshProof(iss?: string): Promise<{ proof: any; publicSignals: any }> {
-  const activeIss = iss || getActiveIssuer();
-  if (!activeIss) throw new Error('No active zkLogin issuer');
+// Generate fresh proof using stored JWT
+async function generateFreshProof(provider?: string): Promise<{ proof: any; publicSignals: any }> {
+  const activeProvider = provider || getActiveProvider();
+  if (!activeProvider) throw new Error('No active zkLogin provider');
 
-  const claims = await loadClaims(activeIss);
-  const password = await promptForPassword(activeIss);
-  const salt = await deriveSaltFromClaims(password, claims);
+  // Load JWT - this should use cached password key if available
+  const jwt = await loadJwt(activeProvider);
+  const claims = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
+
+  // Get salt - either from cache or derive with password prompt
+  const salt = await getSaltForClaims(activeProvider);
 
   const combinedInput = await hashSubSaltIss(claims.sub, salt, claims.iss);
   const issHash = await hashIss(claims.iss);
@@ -513,29 +682,48 @@ async function hashIss(iss: string): Promise<Uint8Array> {
   }
 }
 
-// Smart zkLogin flow: try cached claims first, fallback to OAuth
+// Smart zkLogin flow: check cache first, then prompt for password only when needed
 async function initiateSmartZkLogin(provider: string): Promise<{ proof: any; publicSignals: any; fromCache: boolean }> {
-  const iss = getIssuerUrl(provider);
-  const existingEntry = loadClaimsEntry(iss);
+  console.log(`🔑 ENTRY: initiateSmartZkLogin() called for ${provider}`);
+
+  const iss = getIssuerFromProvider(provider);
+
+  const existingEntry = loadJwtEntry(provider);
 
   if (existingEntry) {
+    // Cache exists - use retry mechanism like ensurePasswordKey
+    console.log(`🔐 Found cached ${provider} identity, prompting for password...`);
     try {
-      console.log(`✅ Found cached ${provider} identity, prompting for password...`);
-      const claims = await loadClaims(iss);
-      const { proof, publicSignals } = await generateFreshProof(iss);
+      // Use ensurePasswordKey which has built-in retry logic
+      const key = await ensurePasswordKey(iss);
+      console.log(`🔑 Password validated and key cached for ${provider}`);
+
+      // Load and decrypt JWT using the validated password key
+      console.log(`🔑 Loading JWT with validated password key...`);
+      const jwt = await loadJwt(provider); // Use cached key, no password needed
+      const decoded = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
+
+      // Derive and cache salt at the same time since we have validated key + claims
+      console.log(`🔑 Deriving and caching salt...`);
+      const salt = await getSaltForClaims(provider);
+
+      console.log(`🔑 Generating proof with cached data...`);
+      const { proof, publicSignals } = await generateFreshProof(provider);
       return { proof, publicSignals, fromCache: true };
-    } catch (error) {
-      if (error.message.includes('Too many failed attempts')) {
+    } catch (error: any) {
+      if (error?.message?.includes('Too many failed attempts')) {
         throw error; // Don't fallback during cooldown
       }
-      if (error.message === 'Invalid password') {
+      if (error?.message === 'Invalid password') {
         throw error; // Let user retry password
       }
-      console.warn(`⚠️ Failed to use cached ${provider} identity:`, error.message);
+      console.warn(`⚠️ Failed to use cached ${provider} identity:`, error?.message);
+      // Continue to OAuth fallback
     }
   }
 
-  console.log(`🌐 No cached ${provider} identity found, initiating OAuth...`);
+  // No cache exists or cache failed - need OAuth
+  console.log(`🌐 No cached ${provider} identity found, will need OAuth...`);
   throw new Error(`OAUTH_REQUIRED:${provider}`);
 }
 
@@ -551,14 +739,18 @@ function getIssuerUrl(provider: string): string {
 }
 
 // Legacy function - now redirects to generateFreshProof
-async function deriveEphemeralKey(userId: string, iss: string, maxEpoch: number): Promise<any> {
-  const claims = await loadClaims(iss);
+async function deriveEphemeralKey(userId: string, providerOrIss: string, maxEpoch: number): Promise<any> {
+  // Handle both provider names and issuer URLs for backwards compatibility
+  const provider = providerOrIss.includes('http') ? getProviderFromIssuer(providerOrIss) : providerOrIss;
+
+  const jwt = await loadJwt(provider);
+  const claims = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
 
   if (claims.sub !== userId) {
     throw new Error('User ID mismatch with stored claims');
   }
 
-  const { proof, publicSignals } = await generateFreshProof(iss);
+  const { proof, publicSignals } = await generateFreshProof(provider);
   const ephemeralKey = publicSignals[0]; // Ed25519 key
   return { proof, ephemeralKey, publicSignals };
 }
@@ -571,11 +763,11 @@ if (typeof window !== 'undefined') {
 
   // Expose simplified zkLogin functions globally
   (window as any).initiateSmartZkLogin = initiateSmartZkLogin;
-  (window as any).storeVerifiedClaims = storeVerifiedClaims;
+  (window as any).storeVerifiedJwt = storeVerifiedJwt;
   (window as any).getSaltForClaims = getSaltForClaims;
   (window as any).generateFreshProof = generateFreshProof;
   (window as any).deriveEphemeralKey = deriveEphemeralKey;
-  (window as any).loadClaims = loadClaims;
+  (window as any).loadJwt = loadJwt;
 
   // Expose security utilities globally
   (window as any).setSecureCookie = setSecureCookie;
@@ -588,18 +780,21 @@ if (typeof window !== 'undefined') {
 // ---------------------------------------------------------------------------
 export {
   initiateSmartZkLogin,
-  storeVerifiedClaims,
+  storeVerifiedJwt,
   getSaltForClaims,
   generateFreshProof,
   deriveEphemeralKey,
-  loadClaims,
+  loadJwt,
   hashSubSaltIss,
   hashIss,
   setSecureCookie,
   setCSRFToken,
   validateCSRFToken,
   deriveSaltFromClaims,
-  getIssuerUrl
+  getIssuerUrl,
+  setPasswordPromptFunction,
+  clearSensitiveSessionData,
+  validatePasswordForProvider
 };
 
 // ---------------------------------------------------------------------------
