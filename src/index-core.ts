@@ -9,6 +9,8 @@ import { normalizeSuiAddress } from '@mysten/sui/utils';
 // Basic wallet detection
 import { getWallets } from '@mysten/wallet-standard';
 
+import { lazyLoadImages } from './lazy-images';
+
 // Core functions that are needed early
 const CoreSui = {
   getFullnodeUrl,
@@ -53,6 +55,10 @@ const CoreLocalZkLogin = {
   createProver: null,
 };
 
+const CoreUtils = {
+  lazyLoadImages,
+};
+
 // Update the global SDK with core functionality
 if (window.SuiSDK) {
   // Merge with existing shell, preserving loading state
@@ -62,6 +68,7 @@ if (window.SuiSDK) {
   window.SuiSDK.SuiNS = { ...window.SuiSDK.SuiNS, ...CoreSuiNS };
   window.SuiSDK.WalletStandard = { ...window.SuiSDK.WalletStandard, ...CoreWalletStandard };
   window.SuiSDK.LocalZkLogin = { ...window.SuiSDK.LocalZkLogin, ...CoreLocalZkLogin };
+  window.SuiSDK.Utils = { ...(window.SuiSDK.Utils || {}), ...CoreUtils };
 } else {
   // Fallback if shell didn't load properly
   console.warn('SuiSDK shell not found, creating core SDK directly');
@@ -72,5 +79,6 @@ if (window.SuiSDK) {
     SuiNS: CoreSuiNS,
     WalletStandard: CoreWalletStandard,
     LocalZkLogin: CoreLocalZkLogin,
+    Utils: CoreUtils,
   };
 }

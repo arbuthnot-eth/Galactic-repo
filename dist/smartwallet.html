@@ -5,10 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Galactic Wallet</title>
 
+    <!-- Critical inline CSS for initial paint -->
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0ff;
+            display: flex;
+            flex-direction: column;
+        }
+        .wallet-connection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        #walletHeaderSpinnerWrapper {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #cfe4f7;
+        }
+        #walletHeaderSpinner {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #ffffff;
+            animation: wallet-header-spin 1s linear infinite;
+        }
+        @keyframes wallet-header-spin {
+            to { transform: rotate(360deg); }
+        }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+    </style>
+
+    <link rel="preload" href="/dist/sui-sdk-shell.iife.js" as="script" crossorigin>
+
     <!-- Security Headers -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     <meta http-equiv="X-XSS-Protection" content="1; mode=block">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
@@ -28,6 +79,14 @@
                 (document.body||document.head).appendChild(styleEl);
             }
         });
+        if ('serviceWorker' in navigator) {
+            const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+            if (window.location.protocol === 'https:' || isLocalhost) {
+                navigator.serviceWorker.register('/sw.js').catch(error => {
+                    console.warn('Service worker registration failed:', error);
+                });
+            }
+        }
     </script>
 
     <!-- zk-Login dependencies -->
@@ -205,7 +264,7 @@
         .zklogin-provider-name { font-weight: 500; }
     </style>
     
-    <script>(function(){  try {    const bundleBase64 = 'KGZ1bmN0aW9uKCl7InVzZSBzdHJpY3QiO2NvbnN0IGw9e2NvcmU6bnVsbCx0cmFuc2FjdGlvbjpudWxsLGFkdmFuY2VkOm51bGx9O2Z1bmN0aW9uIGkobixvKXtyZXR1cm4gZnVuY3Rpb24oKXtyZXR1cm4gbFtuXXx8KGxbbl09bmV3IFByb21pc2UoKGUsZCk9Pnt3aW5kb3cuU3VpU0RLLl9sb2FkaW5nW25dPSEwO2NvbnN0IGE9ZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgic2NyaXB0Iik7YS5zcmM9byxhLm9ubG9hZD0oKT0+e3dpbmRvdy5TdWlTREsuX2xvYWRpbmdbbl09ITEsZSgpfSxhLm9uZXJyb3I9KCk9Pnt3aW5kb3cuU3VpU0RLLl9sb2FkaW5nW25dPSExLGQobmV3IEVycm9yKGBGYWlsZWQgdG8gbG9hZCAke259IFNESyB0aWVyYCkpfSxkb2N1bWVudC5oZWFkLmFwcGVuZENoaWxkKGEpfSkpLGxbbl19fXdpbmRvdy5TdWlTREs9e1N1aTp7RWQyNTUxOUtleXBhaXI6bnVsbCxFZDI1NTE5UHVibGljS2V5Om51bGwsZ2V0RnVsbG5vZGVVcmw6bnVsbCxTdWlDbGllbnQ6bnVsbCxUcmFuc2FjdGlvbjpudWxsLG5vcm1hbGl6ZVN1aUFkZHJlc3M6bnVsbCxUcmFuc2FjdGlvbkJsb2NrOm51bGwsU3VpbnNDbGllbnQ6bnVsbH0sQkNTOntmcm9tQmFzZTY0Om51bGx9LFprTG9naW46e30sU3VpTlM6e1N1aW5zQ2xpZW50Om51bGx9LFdhbGxldFN0YW5kYXJkOntnZXRXYWxsZXRzOm51bGx9LExvY2FsWmtMb2dpbjp7fSxfbG9hZGluZzp7Y29yZTohMSx0cmFuc2FjdGlvbjohMSxhZHZhbmNlZDohMX0sbG9hZENvcmU6aSgiY29yZSIsIi9kaXN0L3N1aS1zZGstY29yZS5paWZlLmpzIiksbG9hZFRyYW5zYWN0aW9uOmkoInRyYW5zYWN0aW9uIiwiL2Rpc3Qvc3VpLXNkay10cmFuc2FjdGlvbi5paWZlLmpzIiksbG9hZEFkdmFuY2VkOmkoImFkdmFuY2VkIiwiL2Rpc3Qvc3VpLXNkay1hZHZhbmNlZC5paWZlLmpzIil9fSkoKTsK';    const decode = typeof globalThis.atob === 'function'      ? (value) => globalThis.atob(value)      : (value) => {          if (globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {            return globalThis.Buffer.from(value, 'base64').toString('utf8');          }          throw new Error('Base64 decoder unavailable in this environment');        };    const execute = new Function(decode(bundleBase64));    execute();  } catch (error) {    console.error('Failed to execute inline SmartWallet shell bundle:', error);  }}())</script>
+    <script>(function(){  try {    const bundleBase64 = 'KGZ1bmN0aW9uKCl7InVzZSBzdHJpY3QiO2NvbnN0IGw9e2NvcmU6bnVsbCx0cmFuc2FjdGlvbjpudWxsLGFkdmFuY2VkOm51bGx9O2Z1bmN0aW9uIGEobixlKXtyZXR1cm4gZnVuY3Rpb24oKXtyZXR1cm4gbFtuXXx8KGxbbl09bmV3IFByb21pc2UoKHQsZCk9Pnt3aW5kb3cuU3VpU0RLLl9sb2FkaW5nW25dPSEwO2NvbnN0IGk9ZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgic2NyaXB0Iik7aS5zcmM9ZSxpLm9ubG9hZD0oKT0+e3dpbmRvdy5TdWlTREsuX2xvYWRpbmdbbl09ITEsdCgpfSxpLm9uZXJyb3I9KCk9Pnt3aW5kb3cuU3VpU0RLLl9sb2FkaW5nW25dPSExLGQobmV3IEVycm9yKGBGYWlsZWQgdG8gbG9hZCAke259IFNESyB0aWVyYCkpfSxkb2N1bWVudC5oZWFkLmFwcGVuZENoaWxkKGkpfSkpLGxbbl19fXdpbmRvdy5TdWlTREs9e1N1aTp7RWQyNTUxOUtleXBhaXI6bnVsbCxFZDI1NTE5UHVibGljS2V5Om51bGwsZ2V0RnVsbG5vZGVVcmw6bnVsbCxTdWlDbGllbnQ6bnVsbCxUcmFuc2FjdGlvbjpudWxsLG5vcm1hbGl6ZVN1aUFkZHJlc3M6bnVsbCxUcmFuc2FjdGlvbkJsb2NrOm51bGwsU3VpbnNDbGllbnQ6bnVsbH0sQkNTOntmcm9tQmFzZTY0Om51bGx9LFprTG9naW46e30sU3VpTlM6e1N1aW5zQ2xpZW50Om51bGx9LFdhbGxldFN0YW5kYXJkOntnZXRXYWxsZXRzOm51bGx9LExvY2FsWmtMb2dpbjp7fSxVdGlsczp7fSxfbG9hZGluZzp7Y29yZTohMSx0cmFuc2FjdGlvbjohMSxhZHZhbmNlZDohMX0sbG9hZENvcmU6YSgiY29yZSIsIi9kaXN0L3N1aS1zZGstY29yZS5paWZlLmpzIiksbG9hZFRyYW5zYWN0aW9uOmEoInRyYW5zYWN0aW9uIiwiL2Rpc3Qvc3VpLXNkay10cmFuc2FjdGlvbi5paWZlLmpzIiksbG9hZEFkdmFuY2VkOmEoImFkdmFuY2VkIiwiL2Rpc3Qvc3VpLXNkay1hZHZhbmNlZC5paWZlLmpzIil9LHdpbmRvdy5sb2FkQ29yZUlmTmVlZGVkPSgpPT53aW5kb3cuU3VpU0RLLmxvYWRDb3JlKCk7ZnVuY3Rpb24gbyhuKXtjb25zdCBlPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCJ3YWxsZXRIZWFkZXJTcGlubmVyV3JhcHBlciIpO2UmJihlLnN0eWxlLmRpc3BsYXk9bj8iaW5saW5lLWZsZXgiOiJub25lIixlLnNldEF0dHJpYnV0ZSgiZGF0YS1hY3RpdmUiLG4/InRydWUiOiJmYWxzZSIpKX1kb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCJET01Db250ZW50TG9hZGVkIiwoKT0+e2NvbnN0IG49ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoIndhbGxldEhlYWRlckFjdGlvbiIpO24mJm4uYWRkRXZlbnRMaXN0ZW5lcigiY2xpY2siLGFzeW5jKCk9Pntjb25zdCBlPSF3aW5kb3cuU3VpU0RLPy5TdWk/LlN1aUNsaWVudDtlJiZvKCEwKTt0cnl7YXdhaXQgd2luZG93LlN1aVNESy5sb2FkQ29yZSgpfWZpbmFsbHl7ZSYmbyghMSl9fSl9KX0pKCk7Cg==';    const decode = typeof globalThis.atob === 'function'      ? (value) => globalThis.atob(value)      : (value) => {          if (globalThis.Buffer && typeof globalThis.Buffer.from === 'function') {            return globalThis.Buffer.from(value, 'base64').toString('utf8');          }          throw new Error('Base64 decoder unavailable in this environment');        };    const execute = new Function(decode(bundleBase64));    execute();  } catch (error) {    console.error('Failed to execute inline SmartWallet shell bundle:', error);  }}())</script>
     <script>
       // SmartWallet performance optimization: Using shell bundle
       console.log('SmartWallet: shell SDK loaded. Progressive enhancement starting...');
@@ -277,6 +336,11 @@
                     try{
                         evaluateZkLoginSource(decodeZkLoginBase64(inlineBundle));
                         if(window.WitnessCalculatorBuilder){
+                            try {
+                                window.ZkLoginHelpers?.preloadZkLoginAssets?.();
+                            } catch (helperError) {
+                                console.warn('zkLogin asset prefetch failed (inline bundle):', helperError);
+                            }
                             resolve();
                             return;
                         }
@@ -291,6 +355,11 @@
                 script.async=true;
                 script.onload=function(){
                     if(window.WitnessCalculatorBuilder){
+                        try {
+                            window.ZkLoginHelpers?.preloadZkLoginAssets?.();
+                        } catch (helperError) {
+                            console.warn('zkLogin asset prefetch failed (script bundle):', helperError);
+                        }
                         resolve();
                     }else{
                         reject(new Error('zkLogin helpers script executed but WitnessCalculatorBuilder is unavailable'));
@@ -307,6 +376,44 @@
 
             return zkLoginHelpersPromise;
         };
+
+        const scheduleZkLoginWarmup=(function(){
+            let warmupQueued=false;
+            return function(){
+                if(warmupQueued){
+                    return;
+                }
+                warmupQueued=true;
+                const idleScheduler=window.requestIdleCallback||function(cb){return setTimeout(cb,1500);};
+                idleScheduler(async function(){
+                    try {
+                        if (!window.SuiSDK?.loadTransaction || !window.SuiSDK?.loadAdvanced) {
+                            warmupQueued=false;
+                            setTimeout(scheduleZkLoginWarmup, 1000);
+                            return;
+                        }
+                        await window.SuiSDK.loadTransaction();
+                        if (!window.SuiSDK?.Sui?.Ed25519Keypair || typeof window.SuiSDK.Sui.Ed25519Keypair.generate !== 'function') {
+                            warmupQueued=false;
+                            setTimeout(scheduleZkLoginWarmup, 1000);
+                            return;
+                        }
+                        await window.SuiSDK.loadAdvanced();
+                        await window.loadZkLoginHelpers?.();
+                    } catch (warmupError) {
+                        console.debug('zkLogin warmup skipped:', warmupError?.message || warmupError);
+                        warmupQueued=false;
+                    }
+                });
+            };
+        })();
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                scheduleZkLoginWarmup();
+            }
+        }, { once: true });
+        window.addEventListener('focus', scheduleZkLoginWarmup, { once: true });
     </script>
     
     <script type="module">
@@ -314,6 +421,98 @@
         const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{2,}$/;
         const HEX_STRING_RE = /^(0x)?[0-9a-fA-F]{2,}$/;
         const SUINS_NAME_RE = /^[a-z0-9]+(?:[-.][a-z0-9]+)*\.sui$/i;
+        const IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+        const GOOGLE_JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
+        const JWKS_CACHE_TTL_MS = 60 * 60 * 1000;
+        const CLOCK_SKEW_MS = 5 * 60 * 1000;
+        const ALLOWED_GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
+        const GOOGLE_JWK_CACHE = new Map();
+        let cachedGoogleJwks = { keys: null, fetchedAt: 0 };
+
+       function base64UrlToUint8Array(segment){
+           if(typeof segment!=='string' || !segment.length){
+               return new Uint8Array();
+           }
+           const paddedLength = segment.length % 4;
+           const padding = paddedLength ? '='.repeat(4 - paddedLength) : '';
+           const base64 = (segment + padding).replace(/-/g, '+').replace(/_/g, '/');
+           const binary = atob(base64);
+           const bytes = new Uint8Array(binary.length);
+           for(let i = 0; i < binary.length; i++){
+               bytes[i] = binary.charCodeAt(i);
+           }
+           return bytes;
+       }
+
+       function decodeBase64UrlJson(segment){
+           try {
+                if (typeof segment !== 'string' || !segment.length) {
+                    throw new Error('Invalid segment');
+                }
+                const paddedLength = segment.length % 4;
+                const padding = paddedLength ? '='.repeat(4 - paddedLength) : '';
+                const base64 = (segment + padding).replace(/-/g, '+').replace(/_/g, '/');
+                const json = atob(base64);
+                return JSON.parse(json);
+            } catch (error) {
+                throw new Error('Invalid JWT segment');
+            }
+        }
+
+        async function fetchGoogleJwks(){
+            const now = Date.now();
+            if (cachedGoogleJwks.keys && now - cachedGoogleJwks.fetchedAt < JWKS_CACHE_TTL_MS) {
+                return cachedGoogleJwks.keys;
+            }
+            const response = await fetch(GOOGLE_JWKS_URL, { cache: 'no-store' }).catch(() => null);
+            if (!response || !response.ok) {
+                throw new Error('Unable to fetch Google signing keys');
+            }
+            const data = await response.json();
+            if (!data || !Array.isArray(data.keys)) {
+                throw new Error('Google JWKS response malformed');
+            }
+            cachedGoogleJwks = { keys: data.keys, fetchedAt: now };
+            return data.keys;
+        }
+
+        async function getGoogleSigningKey(kid){
+            if (GOOGLE_JWK_CACHE.has(kid)) {
+                return GOOGLE_JWK_CACHE.get(kid);
+            }
+
+            let keys = await fetchGoogleJwks();
+            let jwk = keys.find(key => key.kid === kid);
+
+            if (!jwk) {
+                cachedGoogleJwks = { keys: null, fetchedAt: 0 };
+                keys = await fetchGoogleJwks();
+                jwk = keys.find(key => key.kid === kid);
+            }
+
+            if (!jwk) {
+                throw new Error('Unable to locate Google signing key');
+            }
+
+            const keyData = {
+                ...jwk,
+                alg: 'RS256',
+                use: 'sig',
+                ext: true,
+                key_ops: ['verify']
+            };
+
+            const cryptoKey = await crypto.subtle.importKey(
+                'jwk',
+                keyData,
+                { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+                false,
+                ['verify']
+            );
+
+            GOOGLE_JWK_CACHE.set(kid, cryptoKey);
+            return cryptoKey;
+        }
 
         let currentWallet = null;
         let currentNetwork = 'testnet';
@@ -648,26 +847,88 @@
             });
         }
 
-        function validateZkLoginJwt(decodedJwt, expectedNonce, expectedAud) {
-            if (!decodedJwt) {
-                throw new Error('Missing JWT payload');
+        async function validateZkLoginJwt(idToken, expectedNonce, expectedAud) {
+            const encoder = new TextEncoder();
+
+            if (typeof idToken !== 'string' || !idToken.includes('.')) {
+                throw new Error('Invalid JWT format');
             }
-            if (!decodedJwt.sub) {
+
+            const segments = idToken.split('.');
+            if (segments.length !== 3) {
+                throw new Error('Invalid JWT format');
+            }
+
+            const [headerSegment, payloadSegment, signatureSegment] = segments;
+            const header = decodeBase64UrlJson(headerSegment);
+
+            if (header.alg !== 'RS256') {
+                throw new Error('Unsupported JWT algorithm');
+            }
+            if (!header.kid) {
+                throw new Error('JWT missing key identifier');
+            }
+
+            const signingKey = await getGoogleSigningKey(header.kid);
+            const signatureBytes = base64UrlToUint8Array(signatureSegment);
+            const signedContent = encoder.encode(`${headerSegment}.${payloadSegment}`);
+            const signatureValid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', signingKey, signatureBytes, signedContent);
+
+            if (!signatureValid) {
+                throw new Error('JWT signature verification failed');
+            }
+
+            const payload = decodeBase64UrlJson(payloadSegment);
+
+            if (!payload || typeof payload !== 'object') {
+                throw new Error('JWT payload missing');
+            }
+            if (!payload.sub) {
                 throw new Error('JWT missing subject (sub)');
             }
-            if (!decodedJwt.iss) {
-                throw new Error('JWT missing issuer (iss)');
+            if (!payload.iss || !ALLOWED_GOOGLE_ISSUERS.has(payload.iss)) {
+                throw new Error('JWT issuer is not allowed');
             }
-            if (!decodedJwt.nonce) {
-                throw new Error('JWT missing nonce');
-            }
-            if (decodedJwt.nonce !== expectedNonce) {
+            if (!payload.nonce || payload.nonce !== expectedNonce) {
                 throw new Error('Nonce mismatch between request and JWT');
             }
-            if (decodedJwt.aud !== expectedAud) {
+
+            const now = Date.now();
+
+            if (typeof payload.exp === 'number') {
+                const expiry = payload.exp * 1000;
+                if (!Number.isFinite(expiry) || expiry < now - CLOCK_SKEW_MS) {
+                    throw new Error('JWT has expired');
+                }
+            } else {
+                throw new Error('JWT missing expiration (exp) claim');
+            }
+
+            if (typeof payload.iat === 'number') {
+                const issuedAt = payload.iat * 1000;
+                if (!Number.isFinite(issuedAt) || issuedAt > now + CLOCK_SKEW_MS) {
+                    throw new Error('JWT issued-at time is invalid');
+                }
+            }
+
+            if (typeof payload.nbf === 'number') {
+                const notBefore = payload.nbf * 1000;
+                if (notBefore > now + CLOCK_SKEW_MS) {
+                    throw new Error('JWT not yet valid (nbf)');
+                }
+            }
+
+            const audClaim = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+            if (!audClaim.includes(expectedAud)) {
                 throw new Error('Unexpected JWT audience');
             }
-            return true;
+            payload.aud = expectedAud;
+
+            if (payload.email && payload.email_verified === false) {
+                throw new Error('Email address has not been verified by Google');
+            }
+
+            return payload;
         }
 
         // zkLogin provider configuration
@@ -819,8 +1080,7 @@
                     throw new Error('ZkLogin utilities unavailable in SDK bundle');
                 }
 
-                const decodedJwt = window.SuiSDK.ZkLogin.decodeJwt(jwt);
-                validateZkLoginJwt(decodedJwt, pendingZkLoginContext.nonce, ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID);
+                const decodedJwt = await validateZkLoginJwt(jwt, pendingZkLoginContext.nonce, ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID);
                 logOutput('Google identity token verified.');
 
                 // Prepare helper references for salt/proof handling
@@ -913,8 +1173,7 @@
                 const saltHex = Array.from(passwordSalt).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 62);
                 const salt = BigInt('0x' + saltHex) % BN254_FIELD_MODULUS;
 
-                const computedAddress = window.SuiSDK.ZkLogin.jwtToAddress(jwt, salt, false);
-                const suiAddress = computedAddress;
+                const suiAddress = window.SuiSDK.ZkLogin.jwtToAddress(jwt, salt, false);
 
                 let addressSeed = window.SuiSDK.ZkLogin.genAddressSeed(salt, 'sub', decodedJwt.sub, decodedJwt.aud);
                 let publicIdentifier = window.SuiSDK.ZkLogin.toZkLoginPublicIdentifier(addressSeed, decodedJwt.iss, { legacyAddress: false });
@@ -2171,9 +2430,9 @@
 
                     // Special handling for zkLogin to show provider selection
                     if (e.type === 'custom' && e.action === 'zkLogin') {
-                        html += '\n<div class="zklogin-providers">\n' +
+                                html += '\n<div class="zklogin-providers">\n' +
                                 '  <button type="button" class="wallet-card" onclick="toggleZkLoginProviders(event, ' + i + ')">\n' +
-                                '    <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
+                                '    <div class="wallet-card-icon-wrap"><img src="' + IMAGE_PLACEHOLDER + '" data-src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
                                 '    <div class="wallet-card-content">\n' +
                                 '      <div class="wallet-card-name">' + safeName + '</div>\n' +
                                 '    </div>\n' +
@@ -2197,7 +2456,7 @@
                         // Special handling for browser wallet to show create/unlock options
                         html += '\n<div class="traditional-providers">\n' +
                                 '  <button type="button" class="wallet-card" onclick="toggleTraditionalWalletOptions(event, ' + i + ')">\n' +
-                                '    <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
+                                '    <div class="wallet-card-icon-wrap"><img src="' + IMAGE_PLACEHOLDER + '" data-src="' + safeIcon + '" alt="' + safeName + ' icon" class="wallet-card-icon" loading="lazy"></div>\n' +
                                 '    <div class="wallet-card-content">\n' +
                                 '      <div class="wallet-card-name">' + safeName + '</div>\n' +
                                 '    </div>\n' +
@@ -2208,7 +2467,7 @@
                         // Add passkey-icon class for passkey entries to handle scaling
                         var iconClass = (e.type === 'custom' && e.action === 'passkey') ? 'wallet-card-icon passkey-icon' : 'wallet-card-icon';
                         html += '\n<button type="button" class="wallet-card" onclick="connectWalletByIndex(' + i + ')">\n' +
-                                '  <div class="wallet-card-icon-wrap"><img src="' + safeIcon + '" alt="' + safeName + ' icon" class="' + iconClass + '" loading="lazy"></div>\n' +
+                                '  <div class="wallet-card-icon-wrap"><img src="' + IMAGE_PLACEHOLDER + '" data-src="' + safeIcon + '" alt="' + safeName + ' icon" class="' + iconClass + '" loading="lazy"></div>\n' +
                                 '  <div class="wallet-card-content">\n' +
                                 '    <div class="wallet-card-name">' + safeName + '</div>\n' +
                                 '  </div>\n' +
@@ -2217,6 +2476,13 @@
                 }
             }
             list.innerHTML = html;
+            if (window.SuiSDK?.Utils?.lazyLoadImages) {
+                try {
+                    window.SuiSDK.Utils.lazyLoadImages();
+                } catch (lazyError) {
+                    console.warn('Lazy image loader failed:', lazyError);
+                }
+            }
             overlay.classList.add('visible');
             document.body.style.overflow = 'hidden';
             var closeBtn = document.getElementById('walletModalClose');
@@ -3107,6 +3373,17 @@
             }
         }
 
+        function parseJWT(token) {
+            if (typeof token !== 'string') {
+                throw new Error('Invalid JWT credential');
+            }
+            const segments = token.split('.');
+            if (segments.length < 2) {
+                throw new Error('JWT payload missing');
+            }
+            return decodeBase64UrlJson(segments[1]);
+        }
+
         function handleGoogleSignIn(response) {
             try {
                 console.log('Google sign-in response received:', response);
@@ -3154,19 +3431,6 @@
             } catch (error) {
                 console.error('Error handling Google sign-in:', error);
                 logOutput(`❌ Google authentication failed: ${error.message}`, true);
-            }
-        }
-
-        function parseJWT(token) {
-            try {
-                const base64Url = token.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-                }).join(''));
-                return JSON.parse(jsonPayload);
-            } catch (error) {
-                throw new Error('Failed to parse JWT: ' + error.message);
             }
         }
 
@@ -3238,6 +3502,10 @@
             <div class="wallet-connection-header">
                 <h3>Wallet Connection</h3>
                 <button id="walletHeaderAction" class="primary-btn connect-wallet-inline">Connect</button>
+                <div id="walletHeaderSpinnerWrapper" aria-live="polite" aria-atomic="true">
+                    <span id="walletHeaderSpinner" aria-hidden="true"></span>
+                    <span class="sr-only" id="walletHeaderSpinnerLabel">Loading wallet SDK…</span>
+                </div>
             </div>
 
             <details id="walletConnectionControls" class="section-toggle">

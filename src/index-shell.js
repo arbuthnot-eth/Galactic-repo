@@ -57,6 +57,7 @@ window.SuiSDK = {
     getWallets: null,
   },
   LocalZkLogin: {},
+  Utils: {},
   _loading: {
     core: false,
     transaction: false,
@@ -66,5 +67,35 @@ window.SuiSDK = {
   loadTransaction: createLoader('transaction', '/dist/sui-sdk-transaction.iife.js'),
   loadAdvanced: createLoader('advanced', '/dist/sui-sdk-advanced.iife.js'),
 };
+
+window.loadCoreIfNeeded = () => window.SuiSDK.loadCore();
+
+function toggleHeaderSpinner(isVisible) {
+  const wrapper = document.getElementById('walletHeaderSpinnerWrapper');
+  if (!wrapper) return;
+  wrapper.style.display = isVisible ? 'inline-flex' : 'none';
+  wrapper.setAttribute('data-active', isVisible ? 'true' : 'false');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const actionBtn = document.getElementById('walletHeaderAction');
+  if (!actionBtn) {
+    return;
+  }
+
+  actionBtn.addEventListener('click', async () => {
+    const shouldShowSpinner = !window.SuiSDK?.Sui?.SuiClient;
+    if (shouldShowSpinner) {
+      toggleHeaderSpinner(true);
+    }
+    try {
+      await window.SuiSDK.loadCore();
+    } finally {
+      if (shouldShowSpinner) {
+        toggleHeaderSpinner(false);
+      }
+    }
+  });
+});
 
 console.log('🚀 Galactic SmartWallet shell loaded - progressive enhancement starting...');

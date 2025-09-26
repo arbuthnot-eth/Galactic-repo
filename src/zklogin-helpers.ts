@@ -2,40 +2,83 @@ import { groth16 } from 'snarkjs';
 // Import and explicitly re-export circom runtime for witness calculation
 import { WitnessCalculatorBuilder, createCircomRuntimeImports } from './circom-runtime';
 
+declare global {
+  interface Window {
+    ZkLoginHelpers?: {
+      preloadZkLoginAssets?: () => Promise<void>;
+    };
+  }
+}
+
+let zkLoginAssetsPrefetch: Promise<void> | null = null;
+
+export function preloadZkLoginAssets(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.resolve();
+  }
+
+  if (zkLoginAssetsPrefetch) {
+    return zkLoginAssetsPrefetch;
+  }
+
+  const idle = (window as any).requestIdleCallback || ((cb: Function) => setTimeout(cb, 2000));
+
+  zkLoginAssetsPrefetch = new Promise<void>((resolve) => {
+    idle(() => {
+      Promise.all([
+        fetch('/zklogin.wasm').then((response) => response.arrayBuffer()),
+        fetch('/zklogin.zkey').then((response) => response.arrayBuffer()),
+      ])
+        .then(() => {
+          console.info('⚡ zk-login assets pre-loaded');
+          resolve();
+        })
+        .catch((error) => {
+          console.warn('⚡ zk-login pre-load failed', error);
+          resolve();
+        });
+    });
+  });
+
+  return zkLoginAssetsPrefetch;
+}
+
 // ---------------------------------------------------------------------------
 // Shared security constants, helpers, and in-memory caches
 // ---------------------------------------------------------------------------
 
-const SESSION_PREFIX = 'galactic:zkLogin';
-const IDENTITY_CACHE_KEY = `${SESSION_PREFIX}:identityCache`;
-const ACTIVE_IDENTITY_KEY = `${SESSION_PREFIX}:activeIdentity`;
+const ZKLOGIN_PREFIX = 'galactic:zkLogin';
+const ACTIVE_IDENTITY_KEY = `${ZKLOGIN_PREFIX}:activeIssuer`;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 const PBKDF2_ITERATIONS = 210_000;
 const PBKDF2_DIGEST = 'SHA-256';
-const IDENTITY_HASH_PEPPER = 'galactic::identity::v1';
-const PBKDF2_SALT_PREFIX = 'galactic::pbkdf::v1::';
-const PASSWORD_VERIFIER_PREFIX = 'galactic::verifier::v1';
+const SALT_DERIVATION_PREFIX = 'galactic::salt';
 
-type IdentityCacheEntry = {
-  encryptedSalt: string;
-  saltIv: string;
-  encryptedProof?: string;
-  proofIv?: string;
-  passwordVerifier: string;
-  metadata: {
-    issHash: string;
-    subHash: string;
-    audHash: string;
-    updatedAt: number;
-  };
+type JwtClaims = {
+  sub: string;
+  iss: string;
+  aud: string | string[];
+  exp: number;
+  nonce?: string;
+};
+
+type ClaimsEntry = {
+  encryptedClaims: string;
+  claimsIv: string;
 };
 
 const passwordKeyCache = new Map<string, CryptoKey>();
+const passwordRetryCount = new Map<string, number>();
+const passwordCooldownUntil = new Map<string, number>();
 let idleTimeoutHandle: number | null = null;
 let idleListenersRegistered = false;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+function getIssuerKey(iss: string): string {
+  return `${ZKLOGIN_PREFIX}:${iss}`;
+}
 
 function normalizeAudienceClaim(aud: unknown): string {
   if (Array.isArray(aud)) {
@@ -64,34 +107,35 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function loadIdentityCache(): Record<string, IdentityCacheEntry> {
+function loadClaimsEntry(iss: string): ClaimsEntry | null {
   try {
-    const raw = sessionStorage.getItem(IDENTITY_CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, IdentityCacheEntry>;
-    return parsed || {};
+    const key = getIssuerKey(iss);
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as ClaimsEntry;
   } catch (error) {
-    console.warn('Failed to parse identity cache. Resetting.', error);
-    return {};
+    console.warn(`Failed to parse claims entry for ${iss}. Removing.`, error);
+    localStorage.removeItem(getIssuerKey(iss));
+    return null;
   }
 }
 
-function saveIdentityCache(cache: Record<string, IdentityCacheEntry>) {
-  sessionStorage.setItem(IDENTITY_CACHE_KEY, JSON.stringify(cache));
+function saveClaimsEntry(iss: string, entry: ClaimsEntry) {
+  const key = getIssuerKey(iss);
+  localStorage.setItem(key, JSON.stringify(entry));
 }
 
-function getActiveIdentityHash(): string | null {
-  return sessionStorage.getItem(ACTIVE_IDENTITY_KEY);
+function getActiveIssuer(): string | null {
+  return localStorage.getItem(ACTIVE_IDENTITY_KEY);
 }
 
-function setActiveIdentityHash(identityHash: string) {
-  sessionStorage.setItem(ACTIVE_IDENTITY_KEY, identityHash);
+function setActiveIssuer(iss: string) {
+  localStorage.setItem(ACTIVE_IDENTITY_KEY, iss);
 }
 
 function clearSensitiveSessionData() {
   passwordKeyCache.clear();
-  sessionStorage.removeItem(IDENTITY_CACHE_KEY);
-  sessionStorage.removeItem(ACTIVE_IDENTITY_KEY);
+  localStorage.removeItem(ACTIVE_IDENTITY_KEY);
 }
 
 function scheduleIdleTeardown() {
@@ -123,30 +167,10 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-async function computeIdentityHash(jwtPayload: { iss?: string; sub?: string; aud?: unknown }): Promise<string> {
-  const iss = jwtPayload?.iss || '';
-  const sub = jwtPayload?.sub || '';
-  const aud = normalizeAudienceClaim(jwtPayload?.aud);
-  const canonical = `${IDENTITY_HASH_PEPPER}|${iss}|${sub}|${aud}`;
-  const digest = await sha256Bytes(canonical);
-  return bytesToBase64Url(digest);
-}
-
-type PasswordMaterial = {
-  identityHash: string;
-  saltBytes: Uint8Array;
-  encryptionKey: CryptoKey;
-  encryptionKeyBytes: Uint8Array;
-  passwordVerifier: string;
-};
-
-async function derivePasswordMaterial(password: string, jwtPayload: { iss?: string; sub?: string; aud?: unknown }): Promise<PasswordMaterial> {
-  validatePassword(password);
-
-  const identityHash = await computeIdentityHash(jwtPayload);
-  const audience = normalizeAudienceClaim(jwtPayload?.aud);
-  const saltSource = `${PBKDF2_SALT_PREFIX}${jwtPayload?.iss || ''}|${jwtPayload?.sub || ''}|${audience}`;
-  const pbkdfSaltBytes = await sha256Bytes(saltSource);
+async function deriveSaltFromClaims(password: string, claims: JwtClaims): Promise<Uint8Array> {
+  const aud = normalizeAudienceClaim(claims.aud);
+  const saltSource = `${SALT_DERIVATION_PREFIX}::${claims.iss}::${claims.sub}::${aud}`;
+  const saltHash = await crypto.subtle.digest('SHA-256', encoder.encode(saltSource));
 
   const passwordKey = await crypto.subtle.importKey(
     'raw',
@@ -156,41 +180,44 @@ async function derivePasswordMaterial(password: string, jwtPayload: { iss?: stri
     ['deriveBits']
   );
 
-  const derivedBits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      salt: pbkdfSaltBytes.buffer,
-      iterations: PBKDF2_ITERATIONS,
-      hash: PBKDF2_DIGEST,
-    },
-    passwordKey,
-    512
+  const derivedBits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    salt: saltHash,
+    iterations: PBKDF2_ITERATIONS,
+    hash: PBKDF2_DIGEST
+  }, passwordKey, 256);
+
+  return new Uint8Array(derivedBits);
+}
+
+async function deriveEncryptionKey(password: string, iss: string): Promise<CryptoKey> {
+  validatePassword(password);
+
+  const keySource = `galactic::encryption::${iss}`;
+  const keySalt = await crypto.subtle.digest('SHA-256', encoder.encode(keySource));
+
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
   );
 
-  const derivedBytes = new Uint8Array(derivedBits);
-  const saltBytes = derivedBytes.slice(0, 32);
-  const encryptionKeyBytes = derivedBytes.slice(32, 64);
+  const derivedBits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    salt: keySalt,
+    iterations: PBKDF2_ITERATIONS,
+    hash: PBKDF2_DIGEST
+  }, passwordKey, 256);
 
-  const encryptionKey = await crypto.subtle.importKey(
+  return await crypto.subtle.importKey(
     'raw',
-    encryptionKeyBytes,
+    derivedBits,
     { name: 'AES-GCM' },
     false,
     ['encrypt', 'decrypt']
   );
-
-  const verifierBytes = await crypto.subtle.digest(
-    'SHA-256',
-    encoder.encode(`${PASSWORD_VERIFIER_PREFIX}|${bytesToBase64(encryptionKeyBytes)}`)
-  );
-
-  return {
-    identityHash,
-    saltBytes,
-    encryptionKey,
-    encryptionKeyBytes,
-    passwordVerifier: bytesToBase64(new Uint8Array(verifierBytes)),
-  };
 }
 
 async function encryptWithKey(key: CryptoKey, data: Uint8Array): Promise<{ ciphertext: string; iv: string }> {
@@ -209,66 +236,103 @@ async function decryptWithKey(key: CryptoKey, base64Cipher: string, base64Iv: st
   return new Uint8Array(decrypted);
 }
 
-async function getCachedPasswordKey(identityHash: string): Promise<CryptoKey> {
-  const cached = passwordKeyCache.get(identityHash);
-  if (!cached) {
-    throw new Error('Password required to unlock stored zkLogin data.');
+async function promptForPassword(iss: string): Promise<string> {
+  // Check cooldown
+  const cooldownEnd = passwordCooldownUntil.get(iss) || 0;
+  if (Date.now() < cooldownEnd) {
+    const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000);
+    throw new Error(`Too many failed attempts. Try again in ${remainingSeconds} seconds.`);
   }
-  return cached;
+
+  return new Promise((resolve, reject) => {
+    const issuerName = iss === 'https://accounts.google.com' ? 'Google' : new URL(iss).hostname;
+    const retryCount = passwordRetryCount.get(iss) || 0;
+    const promptText = retryCount > 0
+      ? `Invalid password (${retryCount}/5 attempts). Enter password for ${issuerName} zkLogin:`
+      : `Enter password for ${issuerName} zkLogin:`;
+
+    const password = prompt(promptText);
+    if (password === null) {
+      reject(new Error('Password prompt cancelled'));
+    } else if (password.length < 8) {
+      reject(new Error('Password must be at least 8 characters'));
+    } else {
+      resolve(password);
+    }
+  });
 }
 
-function upsertIdentityCache(identityHash: string, entry: Partial<IdentityCacheEntry>) {
-  const cache = loadIdentityCache();
-  const existing = cache[identityHash];
-  cache[identityHash] = {
-    encryptedSalt: entry.encryptedSalt || existing?.encryptedSalt || '',
-    saltIv: entry.saltIv || existing?.saltIv || '',
-    encryptedProof: entry.encryptedProof ?? existing?.encryptedProof,
-    proofIv: entry.proofIv ?? existing?.proofIv,
-    passwordVerifier: entry.passwordVerifier || existing?.passwordVerifier || '',
-    metadata: entry.metadata || existing?.metadata || {
-      issHash: '',
-      subHash: '',
-      audHash: '',
-      updatedAt: Date.now(),
-    },
+function handlePasswordFailure(iss: string): void {
+  const currentCount = (passwordRetryCount.get(iss) || 0) + 1;
+  passwordRetryCount.set(iss, currentCount);
+
+  if (currentCount >= 5) {
+    // 5 second cooldown
+    passwordCooldownUntil.set(iss, Date.now() + 5000);
+    passwordRetryCount.delete(iss);
+  }
+}
+
+function handlePasswordSuccess(iss: string): void {
+  passwordRetryCount.delete(iss);
+  passwordCooldownUntil.delete(iss);
+}
+
+async function ensurePasswordKey(iss: string): Promise<CryptoKey> {
+  const cached = passwordKeyCache.get(iss);
+  if (cached) return cached;
+
+  const password = await promptForPassword(iss);
+  const key = await deriveEncryptionKey(password, iss);
+
+  try {
+    const entry = loadClaimsEntry(iss);
+    if (entry) {
+      await decryptWithKey(key, entry.encryptedClaims, entry.claimsIv);
+    }
+    handlePasswordSuccess(iss);
+    passwordKeyCache.set(iss, key);
+    scheduleIdleTeardown();
+    return key;
+  } catch (error) {
+    handlePasswordFailure(iss);
+    throw new Error('Invalid password');
+  }
+}
+
+async function storeClaims(password: string, claims: JwtClaims): Promise<void> {
+  validatePassword(password);
+
+  const key = await deriveEncryptionKey(password, claims.iss);
+  const payload = encoder.encode(JSON.stringify(claims));
+  const { ciphertext, iv } = await encryptWithKey(key, payload);
+
+  const entry: ClaimsEntry = {
+    encryptedClaims: ciphertext,
+    claimsIv: iv
   };
-  saveIdentityCache(cache);
+
+  saveClaimsEntry(claims.iss, entry);
+  passwordKeyCache.set(claims.iss, key);
+  setActiveIssuer(claims.iss);
+  scheduleIdleTeardown();
 }
 
-function buildMetadata(jwtPayload: { iss?: string; sub?: string; aud?: unknown }): Promise<IdentityCacheEntry['metadata']> {
-  return (async () => {
-    const issHash = bytesToBase64Url(await sha256Bytes(jwtPayload?.iss || ''));
-    const subHash = bytesToBase64Url(await sha256Bytes(jwtPayload?.sub || ''));
-    const audHash = bytesToBase64Url(await sha256Bytes(normalizeAudienceClaim(jwtPayload?.aud)));
-    return {
-      issHash,
-      subHash,
-      audHash,
-      updatedAt: Date.now(),
-    };
-  })();
-}
-
-async function verifyPassword(verifier: string, encryptionKeyBytes: Uint8Array) {
-  const candidateBytes = await crypto.subtle.digest(
-    'SHA-256',
-    encoder.encode(`${PASSWORD_VERIFIER_PREFIX}|${bytesToBase64(encryptionKeyBytes)}`)
-  );
-  const expected = base64ToBytes(verifier);
-  const actual = new Uint8Array(candidateBytes);
-  if (!constantTimeEqual(expected, actual)) {
-    throw new Error('Incorrect password for this identity.');
-  }
-}
-
-function ensureIdentityEntry(identityHash: string): IdentityCacheEntry {
-  const cache = loadIdentityCache();
-  const entry = cache[identityHash];
+async function loadClaims(iss: string, password?: string): Promise<JwtClaims> {
+  const entry = loadClaimsEntry(iss);
   if (!entry) {
-    throw new Error('Identity context missing for zkLogin proof.');
+    throw new Error('No stored claims for this issuer');
   }
-  return entry;
+
+  let key: CryptoKey;
+  if (password) {
+    key = await deriveEncryptionKey(password, iss);
+  } else {
+    key = await ensurePasswordKey(iss);
+  }
+
+  const decrypted = await decryptWithKey(key, entry.encryptedClaims, entry.claimsIv);
+  return JSON.parse(decoder.decode(decrypted));
 }
 
 // ---------------------------------------------------------------------------
@@ -371,104 +435,58 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-// Store salt in session storage with idle timeout
-async function storeSaltInSessionStorage(password: string, jwtPayload: any = null): Promise<{ identityHash: string; salt: Uint8Array }> {
-  try {
-    const material = await derivePasswordMaterial(password, jwtPayload || {});
-    const { identityHash, saltBytes, encryptionKey, encryptionKeyBytes, passwordVerifier } = material;
-
-    const cache = loadIdentityCache();
-    const existing = cache[identityHash];
-    if (existing?.passwordVerifier) {
-      await verifyPassword(existing.passwordVerifier, encryptionKeyBytes);
-      if (existing.encryptedSalt && existing.saltIv) {
-        try {
-          const decryptedSalt = await decryptWithKey(encryptionKey, existing.encryptedSalt, existing.saltIv);
-          if (!constantTimeEqual(decryptedSalt, saltBytes)) {
-            throw new Error('Derived salt mismatch for identity.');
-          }
-        } catch (error) {
-          throw new Error('Incorrect password for this identity.');
-        }
-      }
-    }
-
-    const { ciphertext, iv } = await encryptWithKey(encryptionKey, saltBytes);
-    const metadata = await buildMetadata(jwtPayload || {});
-
-    upsertIdentityCache(identityHash, {
-      encryptedSalt: ciphertext,
-      saltIv: iv,
-      passwordVerifier,
-      metadata,
-    });
-
-    passwordKeyCache.set(identityHash, encryptionKey);
-    setActiveIdentityHash(identityHash);
-    scheduleIdleTeardown();
-    return { identityHash, salt: new Uint8Array(saltBytes) };
-  } catch (error) {
-    throw new Error(`Session storage failed: ${(error as Error).message}`);
-  }
+// Store verified JWT claims with password protection
+async function storeVerifiedClaims(password: string, claims: JwtClaims): Promise<string> {
+  await storeClaims(password, claims);
+  return claims.iss;
 }
 
-// Retrieve salt from session storage
-async function getSaltFromSessionStorage(identityHash?: string): Promise<Uint8Array> {
-  try {
-    const activeIdentity = identityHash || getActiveIdentityHash();
-    if (!activeIdentity) throw new Error('No active zkLogin identity');
-    const entry = ensureIdentityEntry(activeIdentity);
-    if (!entry.encryptedSalt || !entry.saltIv) throw new Error('Salt not found for identity');
-    const key = await getCachedPasswordKey(activeIdentity);
-    return await decryptWithKey(key, entry.encryptedSalt, entry.saltIv);
-  } catch (error) {
-    throw new Error(`Salt retrieval failed: ${(error as Error).message}`);
-  }
+// Get salt derived from stored claims
+async function getSaltForClaims(iss?: string): Promise<Uint8Array> {
+  const activeIss = iss || getActiveIssuer();
+  if (!activeIss) throw new Error('No active zkLogin issuer');
+
+  const claims = await loadClaims(activeIss);
+  const password = await promptForPassword(activeIss);
+
+  return await deriveSaltFromClaims(password, claims);
 }
 
 // ---------------------------------------------------------------------------
-// Proof Encryption Functions for Enhanced Security
+// Simplified Proof Generation Functions
 // ---------------------------------------------------------------------------
 
-// Encrypt zkLogin proof using the password-derived identity key
-async function encryptProof(proof: any, identityHash?: string): Promise<void> {
-  try {
-    const activeIdentity = identityHash || getActiveIdentityHash();
-    if (!activeIdentity) throw new Error('No active zkLogin identity');
-    const entry = ensureIdentityEntry(activeIdentity);
-    const key = await getCachedPasswordKey(activeIdentity);
-    const payload = encoder.encode(JSON.stringify(proof));
-    const { ciphertext, iv } = await encryptWithKey(key, payload);
+// Generate fresh proof using stored claims
+async function generateFreshProof(iss?: string): Promise<{ proof: any; publicSignals: any }> {
+  const activeIss = iss || getActiveIssuer();
+  if (!activeIss) throw new Error('No active zkLogin issuer');
 
-    const cache = loadIdentityCache();
-    const updatedEntry = cache[activeIdentity];
-    if (!updatedEntry) throw new Error('Identity context missing for proof storage.');
-    updatedEntry.encryptedProof = ciphertext;
-    updatedEntry.proofIv = iv;
-    updatedEntry.metadata = { ...entry.metadata, updatedAt: Date.now() };
-    cache[activeIdentity] = updatedEntry;
-    saveIdentityCache(cache);
-  } catch (error) {
-    throw new Error(`Proof encryption failed: ${(error as Error).message}`);
-  }
+  const claims = await loadClaims(activeIss);
+  const password = await promptForPassword(activeIss);
+  const salt = await deriveSaltFromClaims(password, claims);
+
+  const combinedInput = await hashSubSaltIss(claims.sub, salt, claims.iss);
+  const issHash = await hashIss(claims.iss);
+  const nonce = crypto.getRandomValues(new Uint8Array(32));
+
+  // Get current epoch for maxEpoch
+  const currentEpoch = await getCurrentEpoch();
+
+  const inputs = {
+    combinedInput: BigInt('0x' + uint8ArrayToHex(combinedInput)),
+    nonce: BigInt('0x' + uint8ArrayToHex(nonce)),
+    maxEpoch: BigInt(currentEpoch + 1),
+    iss_hash: BigInt('0x' + uint8ArrayToHex(issHash))
+  };
+
+  const { proof, publicSignals } = await generateProof(inputs);
+  return { proof, publicSignals };
 }
 
-// Decrypt zkLogin proof from session storage
-async function decryptProof(identityHash?: string): Promise<any> {
-  try {
-    const activeIdentity = identityHash || getActiveIdentityHash();
-    if (!activeIdentity) throw new Error('No active zkLogin identity');
-    const entry = ensureIdentityEntry(activeIdentity);
-    if (!entry.encryptedProof || !entry.proofIv) {
-      throw new Error('No encrypted proof available for identity');
-    }
-    const key = await getCachedPasswordKey(activeIdentity);
-    const decrypted = await decryptWithKey(key, entry.encryptedProof, entry.proofIv);
-    const proofJson = new TextDecoder().decode(decrypted);
-    return JSON.parse(proofJson);
-  } catch (error) {
-    throw new Error(`Proof decryption failed: ${(error as Error).message}`);
-  }
+// Placeholder for getting current epoch from Sui network
+async function getCurrentEpoch(): Promise<number> {
+  // TODO: Implement actual epoch fetching from Sui network
+  return Math.floor(Date.now() / (24 * 60 * 60 * 1000)); // Daily epoch for now
 }
 
 // Hash sub, salt, and iss for circuit input
@@ -495,30 +513,54 @@ async function hashIss(iss: string): Promise<Uint8Array> {
   }
 }
 
-// Generate ZKP proof
-async function deriveEphemeralKey(userId: string, iss: string, maxEpoch: number): Promise<any> {
-  try {
-    const salt = await getSaltFromSessionStorage();
-    const combinedInput = await hashSubSaltIss(userId, salt, iss);
-    const issHash = await hashIss(iss);
-    const nonce = crypto.getRandomValues(new Uint8Array(32));
-    const inputs = {
-      combinedInput: BigInt("0x" + uint8ArrayToHex(combinedInput)),
-      nonce: BigInt("0x" + uint8ArrayToHex(nonce)),
-      maxEpoch: BigInt(maxEpoch),
-      iss_hash: BigInt("0x" + uint8ArrayToHex(issHash)),
-    };
-    const { proof, publicSignals } = await groth16.fullProve(
-      inputs,
-      "/zklogin.wasm",
-      "/zklogin.zkey"
-    );
+// Smart zkLogin flow: try cached claims first, fallback to OAuth
+async function initiateSmartZkLogin(provider: string): Promise<{ proof: any; publicSignals: any; fromCache: boolean }> {
+  const iss = getIssuerUrl(provider);
+  const existingEntry = loadClaimsEntry(iss);
 
-    const ephemeralKey = publicSignals[0]; // Ed25519 key
-    return { proof, ephemeralKey, publicSignals };
-  } catch (error) {
-    throw new Error(`Proof generation failed: ${(error as Error).message}`);
+  if (existingEntry) {
+    try {
+      console.log(`✅ Found cached ${provider} identity, prompting for password...`);
+      const claims = await loadClaims(iss);
+      const { proof, publicSignals } = await generateFreshProof(iss);
+      return { proof, publicSignals, fromCache: true };
+    } catch (error) {
+      if (error.message.includes('Too many failed attempts')) {
+        throw error; // Don't fallback during cooldown
+      }
+      if (error.message === 'Invalid password') {
+        throw error; // Let user retry password
+      }
+      console.warn(`⚠️ Failed to use cached ${provider} identity:`, error.message);
+    }
   }
+
+  console.log(`🌐 No cached ${provider} identity found, initiating OAuth...`);
+  throw new Error(`OAUTH_REQUIRED:${provider}`);
+}
+
+function getIssuerUrl(provider: string): string {
+  switch (provider.toLowerCase()) {
+    case 'google':
+      return 'https://accounts.google.com';
+    case 'microsoft':
+      return 'https://login.microsoftonline.com';
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
+  }
+}
+
+// Legacy function - now redirects to generateFreshProof
+async function deriveEphemeralKey(userId: string, iss: string, maxEpoch: number): Promise<any> {
+  const claims = await loadClaims(iss);
+
+  if (claims.sub !== userId) {
+    throw new Error('User ID mismatch with stored claims');
+  }
+
+  const { proof, publicSignals } = await generateFreshProof(iss);
+  const ephemeralKey = publicSignals[0]; // Ed25519 key
+  return { proof, ephemeralKey, publicSignals };
 }
 
 // Ensure all functions are available globally
@@ -527,15 +569,13 @@ if (typeof window !== 'undefined') {
   (window as any).createCircomRuntimeImports = createCircomRuntimeImports;
   (window as any).snarkjs = { groth16 };
 
-  // Expose salt management functions globally for production
-  (window as any).storeSaltInSessionStorage = storeSaltInSessionStorage;
-  (window as any).getSaltFromSessionStorage = getSaltFromSessionStorage;
+  // Expose simplified zkLogin functions globally
+  (window as any).initiateSmartZkLogin = initiateSmartZkLogin;
+  (window as any).storeVerifiedClaims = storeVerifiedClaims;
+  (window as any).getSaltForClaims = getSaltForClaims;
+  (window as any).generateFreshProof = generateFreshProof;
   (window as any).deriveEphemeralKey = deriveEphemeralKey;
-  (window as any).computeZkLoginIdentityHash = computeIdentityHash;
-
-  // Expose proof encryption functions globally
-  (window as any).encryptProof = encryptProof;
-  (window as any).decryptProof = decryptProof;
+  (window as any).loadClaims = loadClaims;
 
   // Expose security utilities globally
   (window as any).setSecureCookie = setSecureCookie;
@@ -544,20 +584,22 @@ if (typeof window !== 'undefined') {
 }
 
 // ---------------------------------------------------------------------------
-// Export salt management functions for dynamic imports and bundling
+// Export simplified zkLogin functions for dynamic imports and bundling
 // ---------------------------------------------------------------------------
 export {
-  storeSaltInSessionStorage,
-  getSaltFromSessionStorage,
+  initiateSmartZkLogin,
+  storeVerifiedClaims,
+  getSaltForClaims,
+  generateFreshProof,
   deriveEphemeralKey,
+  loadClaims,
   hashSubSaltIss,
   hashIss,
-  encryptProof,
-  decryptProof,
   setSecureCookie,
   setCSRFToken,
   validateCSRFToken,
-  computeIdentityHash
+  deriveSaltFromClaims,
+  getIssuerUrl
 };
 
 // ---------------------------------------------------------------------------
@@ -599,4 +641,11 @@ export async function generateProof(rawInputs: any) {
   );
 
   return { proof, publicSignals };
+}
+
+if (typeof window !== 'undefined') {
+  window.ZkLoginHelpers = {
+    ...(window.ZkLoginHelpers ?? {}),
+    preloadZkLoginAssets,
+  };
 }
