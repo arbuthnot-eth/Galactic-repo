@@ -34,11 +34,6 @@ class WitnessCalculator {
     return "2.1.0";
   }
 
-  async calculateWTNSBin(input: Record<string, any>, sanityCheck: number = 0): Promise<Uint8Array> {
-    // This method should be implemented based on the specific circom circuit requirements
-    // The implementation depends on the circuit's witness calculation logic
-    throw new Error('calculateWTNSBin not implemented: Witness calculation requires circuit-specific implementation');
-  }
 }
 
 // Complete runtime imports that circom WebAssembly modules expect
@@ -88,32 +83,6 @@ function createCircomRuntimeImports(): WebAssembly.Imports {
         return ptr;
       },
 
-      // Shared memory functions (no-op for production)
-      showSharedRWMemory: function() {
-        // Silent in production
-      },
-
-      // Additional debugging/logging functions that circom might expect (no-op)
-      logSetSignal: function() {
-        // Silent in production
-      },
-
-      logGetSignal: function() {
-        // Silent in production
-      },
-
-      logFinishComponent: function() {
-        // Silent in production
-      },
-
-      logStartComponent: function() {
-        // Silent in production
-      },
-
-      // Additional runtime functions that might be needed
-      seed: function() {
-        return Math.floor(Math.random() * 1000000);
-      }
     }
   };
 }

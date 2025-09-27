@@ -735,9 +735,11 @@
             }
         }
 
-        function buildZkLoginAuthUrl(nonce) {
+        function buildZkLoginAuthUrl(nonce, provider = 'google') {
+            const clientId = getClientIdForProvider(provider);
+            const authUrl = getAuthUrlForProvider(provider);
             const params = new URLSearchParams({
-                client_id: ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID,
+                client_id: clientId,
                 redirect_uri: getZkLoginRedirectUri(),
                 response_type: 'id_token',
                 scope: 'openid email profile',
@@ -745,7 +747,7 @@
                 prompt: 'select_account',
                 state: 'zklogin_galactic'
             });
-            return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+            return `${authUrl}?${params.toString()}`;
         }
 
         async function prepareZkLoginContext() {
@@ -1204,9 +1206,10 @@
             return `${address.slice(0, 8)}…${address.slice(-4)}`;
         }
 
-        async function handleZkLoginConnect() {
+        async function handleZkLoginConnect(provider = 'google') {
             try {
-                logOutput('Starting Google zkLogin…');
+                const providerName = ZKLOGIN_PROVIDERS[provider]?.name || provider;
+                logOutput(`Starting ${providerName} zkLogin…`);
                 await ensureSdkReady();
                 if (!suiClient) {
                     await initializeSuiClient();
@@ -1223,7 +1226,8 @@
                     getSaltForClaims,
                     loadJwt,
                     storeVerifiedJwt,
-                    deriveSaltFromClaims
+                    deriveSaltFromClaims,
+                    getIssuerFromProvider
                 } = zkloginHelpers;
 
                 // Set up custom password prompt with unified validation
@@ -1251,8 +1255,7 @@
                 });
 
                 // Check cache-first approach using localStorage
-                const provider = 'google';
-                const iss = 'https://accounts.google.com';
+                const iss = getIssuerFromProvider(provider);
                 let jwt = null;
                 let decodedJwt = null;
                 let salt = null;
@@ -1260,18 +1263,18 @@
 
                 try {
                     // CACHE PATH: First check if we have cached claims for this provider
-                    logOutput('🔍 Checking for cached Google identity...');
+                    logOutput(`🔍 Checking for cached ${providerName} identity...`);
                     await initiateSmartZkLogin(provider);
 
                     // If we get here, cache exists and password was provided
-                    logOutput('✅ Using cached Google identity');
+                    logOutput(`✅ Using cached ${providerName} identity`);
                     fromCache = true;
 
                     // Get salt from cached claims (uses cached password key, no double prompt)
                     salt = await getSaltForClaims();
 
                     // CACHE PATH: Load JWT using cached password key
-                    jwt = await loadJwt('google');
+                    jwt = await loadJwt(provider);
                     decodedJwt = window.SuiSDK.ZkLogin.decodeJwt(jwt); // Use official Sui SDK function
 
                 } catch (error) {
@@ -1280,7 +1283,7 @@
                         logOutput('🌐 No cached identity found, proceeding with OAuth...');
 
                         pendingZkLoginContext = await prepareZkLoginContext();
-                        const authUrl = buildZkLoginAuthUrl(pendingZkLoginContext.nonce);
+                        const authUrl = buildZkLoginAuthUrl(pendingZkLoginContext.nonce, provider);
                         jwt = await openOAuthPopup(authUrl);
 
                         const { ZkLogin } = window.SuiSDK;
@@ -1288,8 +1291,9 @@
                             throw new Error('ZkLogin utilities unavailable in SDK bundle');
                         }
 
-                        decodedJwt = await validateZkLoginJwt(jwt, pendingZkLoginContext.nonce, ZKLOGIN_CONFIG.GOOGLE_CLIENT_ID);
-                        logOutput('Google identity token verified.');
+                        const clientId = getClientIdForProvider(provider);
+                        decodedJwt = await validateZkLoginJwt(jwt, pendingZkLoginContext.nonce, clientId);
+                        logOutput(`${providerName} identity token verified.`);
 
                         // Get password for storing new claims
                         logOutput('🔑 OAuth completed. Please set a password to secure your identity.');
@@ -1306,7 +1310,7 @@
 
                         // Derive salt directly from password + claims (no additional prompting)
                         salt = await deriveSaltFromClaims(password, decodedJwt);
-                        logOutput('✅ Google identity stored for future use');
+                        logOutput(`✅ ${providerName} identity stored for future use`);
                     } else if (error.message === 'Invalid password') {
                         logOutput('❌ Invalid password. Please try again.');
                         throw error;
@@ -1404,12 +1408,12 @@
             }
         }
 
-        async function restoreZkLoginFromSession() {
+        async function restoreZkLoginFromSession(provider = 'google') {
             try {
-                logOutput('🔍 Checking for cached zkLogin identity...');
+                const providerName = ZKLOGIN_PROVIDERS[provider]?.name || provider;
+                logOutput(`🔍 Checking for cached zkLogin identity...`);
 
                 // Use the same smart zkLogin flow for restoration
-                const provider = 'google';
                 await ensureZkLoginHelpers();
 
                 const zkloginHelpers = await import('/src/zklogin-helpers.ts');
@@ -1448,11 +1452,11 @@
 
                     // Try to restore using cached claims (this will prompt for password once)
                     await initiateSmartZkLogin(provider);
-                    logOutput('✅ Restored from cached Google identity');
+                    logOutput(`✅ Restored from cached ${providerName} identity`);
 
                     // CACHE PATH: Get salt and JWT from cached data (uses cached password key)
                     const salt = await getSaltForClaims();
-                    const jwt = await loadJwt('google'); // Load actual JWT
+                    const jwt = await loadJwt(provider); // Load actual JWT
                     const cachedClaims = window.SuiSDK.ZkLogin.decodeJwt(jwt); // Use official Sui SDK function
 
                     // Convert salt to BigInt for SDK compatibility
@@ -1621,13 +1625,8 @@
                 // Close wallet modal
                 closeWalletModal();
 
-                if (provider === 'google') {
-                    await handleZkLoginConnect();
-                } else {
-                    // For now, show a message that other providers are coming soon
-                    logOutput(`🚧 ${ZKLOGIN_PROVIDERS[provider]?.name || provider} zkLogin support coming soon. Using Google for now...`);
-                    await handleZkLoginConnect();
-                }
+                // All providers use the same zkLogin flow
+                await handleZkLoginConnect(provider);
             } catch (error) {
                 logOutput('zkLogin provider connection failed: ' + error.message, true);
             }
@@ -3388,8 +3387,8 @@
 
             <details id="walletConnectionControls" class="section-toggle">
                 <summary>
-                    <span>Wallet Connection Controls</span>
-                    <span id="walletConnectionStatus" class="summary-status">Not connected</span>
+                    <span>View-Only</span>
+                    <span id="walletConnectionStatus" class="summary-status">Not viewing</span>
                 </summary>
                 <div style="padding: 5px;">
 

@@ -98,6 +98,10 @@ function getIssuerFromProvider(provider: string): string {
       return 'https://accounts.google.com';
     case 'microsoft':
       return 'https://login.microsoftonline.com';
+    case 'apple':
+      return 'https://appleid.apple.com';
+    case 'facebook':
+      return 'https://www.facebook.com';
     default:
       throw new Error(`Unknown provider: ${provider}`);
   }
@@ -138,7 +142,6 @@ function normalizeAudienceClaim(aud: unknown): string {
   return '';
 }
 
-// Removed unused sha256Bytes function
 
 // Base64 utilities for encryption/decryption
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -738,6 +741,28 @@ function getIssuerUrl(provider: string): string {
   }
 }
 
+function getClientIdForProvider(provider: string): string {
+  switch (provider.toLowerCase()) {
+    case 'google':
+      return '373405271144-kevesn5h18jt8grqh5cel7jcsu9si73t.apps.googleusercontent.com';
+    case 'microsoft':
+      throw new Error('Microsoft client ID not configured');
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
+  }
+}
+
+function getAuthUrlForProvider(provider: string): string {
+  switch (provider.toLowerCase()) {
+    case 'google':
+      return 'https://accounts.google.com/o/oauth2/v2/auth';
+    case 'microsoft':
+      return 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
+  }
+}
+
 // Ensure all functions are available globally
 if (typeof window !== 'undefined') {
   (window as any).WitnessCalculatorBuilder = WitnessCalculatorBuilder;
@@ -748,6 +773,9 @@ if (typeof window !== 'undefined') {
   (window as any).initiateSmartZkLogin = initiateSmartZkLogin;
   (window as any).storeVerifiedJwt = storeVerifiedJwt;
   (window as any).getSaltForClaims = getSaltForClaims;
+  (window as any).getClientIdForProvider = getClientIdForProvider;
+  (window as any).getAuthUrlForProvider = getAuthUrlForProvider;
+  (window as any).getIssuerFromProvider = getIssuerFromProvider;
   (window as any).generateFreshProof = generateFreshProof;
   (window as any).loadJwt = loadJwt;
 
@@ -773,6 +801,9 @@ export {
   validateCSRFToken,
   deriveSaltFromClaims,
   getIssuerUrl,
+  getIssuerFromProvider,
+  getClientIdForProvider,
+  getAuthUrlForProvider,
   setPasswordPromptFunction,
   clearSensitiveSessionData,
   validatePasswordForProvider
