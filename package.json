@@ -26,6 +26,7 @@
     "faucet": "bash scripts/faucet.sh"
   },
   "dependencies": {
+    "@noble/hashes": "^1.5.0",
     "@mysten/bcs": "^1.7.0",
     "@mysten/sui": "^1.37.6",
     "@mysten/suins": "^0.7.36",

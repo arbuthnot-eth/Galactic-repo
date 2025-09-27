@@ -3,6 +3,7 @@
 
 // Transaction and keypair functionality
 import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
+import { messageWithIntent } from '@mysten/sui/cryptography';
 import { Transaction } from '@mysten/sui/transactions';
 
 // BCS for transaction serialization
@@ -17,6 +18,7 @@ const TransactionSui = {
   Ed25519PublicKey,
   Transaction,
   TransactionBlock: Transaction, // Backward compatibility alias
+  messageWithIntent,
   SuinsClient,
   // Keep existing functions from core tier
   getFullnodeUrl: window.SuiSDK?.Sui?.getFullnodeUrl || null,
@@ -38,6 +40,10 @@ if (window.SuiSDK) {
   window.SuiSDK.Sui = { ...window.SuiSDK.Sui, ...TransactionSui };
   window.SuiSDK.BCS = { ...window.SuiSDK.BCS, ...TransactionBCS };
   window.SuiSDK.SuiNS = { ...window.SuiSDK.SuiNS, ...TransactionSuiNS };
+  // Backwards compatibility - expose constructors at root for existing consumers
+  window.SuiSDK.Transaction = Transaction;
+  window.SuiSDK.TransactionBlock = Transaction;
+  window.SuiSDK.messageWithIntent = messageWithIntent;
 } else {
   console.error('SuiSDK not found - transaction tier cannot load without core tier');
 }

@@ -75,13 +75,15 @@ export default defineConfig({
     headers: {
       'Content-Security-Policy': [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com https://*.gstatic.com https://apis.google.com",
+        "script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com https://*.gstatic.com https://apis.google.com",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
-        "connect-src 'self' https: wss:",
+        "connect-src 'self' https: wss: https://accounts.google.com https://www.googleapis.com https://www.gstatic.com",
         "worker-src 'self' blob:",
         "child-src 'self' blob:",
+        "frame-src 'self' https://accounts.google.com",
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",

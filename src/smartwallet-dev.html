@@ -55,10 +55,8 @@
         }
     </style>
 
-    <link rel="preload" href="/dist/sui-sdk-shell.iife.js" as="script" crossorigin>
-
     <!-- Security Headers -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com https://*.gstatic.com https://apis.google.com; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com https://*.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss: https://accounts.google.com https://www.googleapis.com https://www.gstatic.com; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com https://*.gstatic.com https://apis.google.com; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com https://www.gstatic.com https://*.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss: https://accounts.google.com https://www.googleapis.com https://www.gstatic.com; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta http-equiv="X-XSS-Protection" content="1; mode=block">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
@@ -165,9 +163,14 @@
         .wallet-connection-header h3{margin:0}
         .connect-wallet-inline{padding:8px 16px;font-size:14px;background:linear-gradient(145deg,#4CAF50,#45a049);box-shadow:0 4px 12px rgba(0,0,0,.25);}
         .connect-wallet-inline:hover{background:linear-gradient(145deg,#45a049,#3f8f44)}
+        .view-only-toggle{width:36px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#F7D36B,#E3A619);color:#1f1f1f;border:none;border-radius:12px;cursor:pointer;box-shadow:0 4px 12px rgba(179,126,24,.32);font-size:18px;line-height:1;transition:transform .15s ease,box-shadow .15s ease,filter .15s ease;}
+        .view-only-toggle:hover{background:linear-gradient(145deg,#EFC149,#D99812);transform:translateY(-1px);box-shadow:0 6px 16px rgba(179,126,24,.38);}
+        .view-only-toggle:active{transform:translateY(0);box-shadow:0 2px 6px rgba(179,126,24,.28);filter:brightness(.96);}
+        .view-only-toggle:focus-visible{outline:2px solid rgba(255,255,255,.8);outline-offset:2px;}
         .connect-wallet-inline.disconnect{background:#dc3545;box-shadow:0 4px 12px rgba(0,0,0,.25);border:1px solid rgba(220,53,69,.6);}
         .connect-wallet-inline.disconnect:hover{background:#c82333}
         .balance-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .view-only-input-error{border:1px solid #dc3545 !important; box-shadow:0 0 0 2px rgba(220,53,69,.35) !important;}
         .balance-value{font-family:'Courier New',monospace;}
         .balance-refresh{margin:0;padding:6px 10px;font-size:12px;line-height:1;border-radius:6px;background:rgba(69,139,189,.6);border:1px solid rgba(69,139,189,.5);color:#f4f1ef;cursor:pointer;transition:background .2s ease;box-shadow:none}
         .balance-refresh:hover{background:rgba(90,155,212,.85)}
@@ -272,6 +275,17 @@
         (function ensureDevSdk(){
             if (window.SuiSDK) return; // Already injected (e.g., in production build)
             try {
+                const preloadId='sw-shell-preload';
+                if(!document.head.querySelector(`link[data-id="${preloadId}"]`)){
+                    const preload=document.createElement('link');
+                    preload.rel='preload';
+                    preload.as='script';
+                    preload.href='/dist/sui-sdk-shell.iife.js';
+                    preload.crossOrigin='anonymous';
+                    preload.dataset.id=preloadId;
+                    document.head.appendChild(preload);
+                }
+
                 const s=document.createElement('script');
                 s.src='/dist/sui-sdk-shell.iife.js';
                 s.async=false;
@@ -395,6 +409,13 @@
     </script>
     
     <script type="module">
+
+        import { argon2id } from '@noble/hashes/argon2';
+
+        const ARGON2_MEMORY_KIB = 64 * 1024; // 64 MiB
+        const ARGON2_TIME_COST = 3;
+        const ARGON2_PARALLELISM = 1;
+        const ARGON2_OUTPUT_LENGTH = 32;
 
         const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{2,}$/;
         const HEX_STRING_RE = /^(0x)?[0-9a-fA-F]{2,}$/;
@@ -534,26 +555,19 @@
         async function encryptPrivateKey(privateKey, password) {
             const encoder = new TextEncoder();
             const data = encoder.encode(privateKey);
-            const passwordData = encoder.encode(password);
-
-            // Derive key from password
-            const keyMaterial = await crypto.subtle.importKey(
-                'raw',
-                passwordData,
-                'PBKDF2',
-                false,
-                ['deriveBits', 'deriveKey']
-            );
+            const passwordBytes = encoder.encode(password);
 
             const salt = crypto.getRandomValues(new Uint8Array(16));
-            const key = await crypto.subtle.deriveKey(
-                {
-                    name: 'PBKDF2',
-                    salt: salt,
-                    iterations: 100000,
-                    hash: 'SHA-256'
-                },
-                keyMaterial,
+            const derivedKey = argon2id(passwordBytes, salt, {
+                m: ARGON2_MEMORY_KIB,
+                t: ARGON2_TIME_COST,
+                p: ARGON2_PARALLELISM,
+                dkLen: ARGON2_OUTPUT_LENGTH,
+            });
+
+            const key = await crypto.subtle.importKey(
+                'raw',
+                derivedKey,
                 { name: 'AES-GCM', length: 256 },
                 true,
                 ['encrypt', 'decrypt']
@@ -588,24 +602,18 @@
                 const iv = data.slice(16, 28);
                 const encrypted = data.slice(28);
 
-                const passwordData = new TextEncoder().encode(password);
+                const passwordBytes = new TextEncoder().encode(password);
 
-                const keyMaterial = await crypto.subtle.importKey(
+                const derivedKey = argon2id(passwordBytes, salt, {
+                    m: ARGON2_MEMORY_KIB,
+                    t: ARGON2_TIME_COST,
+                    p: ARGON2_PARALLELISM,
+                    dkLen: ARGON2_OUTPUT_LENGTH,
+                });
+
+                const key = await crypto.subtle.importKey(
                     'raw',
-                    passwordData,
-                    'PBKDF2',
-                    false,
-                    ['deriveBits', 'deriveKey']
-                );
-
-                const key = await crypto.subtle.deriveKey(
-                    {
-                        name: 'PBKDF2',
-                        salt: salt,
-                        iterations: 100000,
-                        hash: 'SHA-256'
-                    },
-                    keyMaterial,
+                    derivedKey,
                     { name: 'AES-GCM', length: 256 },
                     true,
                     ['encrypt', 'decrypt']
@@ -990,7 +998,6 @@
             const {
                 providerLabel = 'zkLogin',
                 hasCache = false,
-                attempts = 0,
                 initialError = '',
                 validator,
                 title,
@@ -1008,7 +1015,6 @@
             );
 
             return new Promise((resolve, reject) => {
-                let attemptCount = attempts;
                 let isProcessing = false;
 
                 const modal = document.createElement('div');
@@ -1147,15 +1153,10 @@
                         resolve(password);
                     } catch (error) {
                         if (error?.message === 'Invalid password') {
-                            attemptCount += 1;
-                            showError(`Invalid password (${attemptCount}/5 attempts)`);
+                            showError('Invalid password. Please try again.');
                             passwordInput.focus();
                             passwordInput.select();
                         } else if (error?.message === 'NO_CACHED_JWT') {
-                            cleanup();
-                            reject(error);
-                            return;
-                        } else if (error?.message && error.message.includes('Too many failed attempts')) {
                             cleanup();
                             reject(error);
                             return;
@@ -1194,27 +1195,15 @@
 
                 await ensureZkLoginHelpers();
 
-                // Load zkLogin helpers once for this flow
-                const zkloginHelpers = await import('/src/zklogin-helpers.ts');
-                const {
-                    setPasswordPromptFunction,
-                    validatePasswordForProvider,
-                    initiateSmartZkLogin,
-                    getSaltForClaims,
-                    loadJwt,
-                    storeVerifiedJwt,
-                    deriveSaltFromClaims,
-                    getIssuerFromProvider
-                } = zkloginHelpers;
+                // zkLogin helpers are already injected globally
 
                 // Set up custom password prompt with unified validation
-                setPasswordPromptFunction(async (iss, attempts) => {
+                setPasswordPromptFunction(async (iss) => {
                     const providerSlug = issuerToProviderSlug(iss);
                     const providerLabel = providerSlug
                         ? (ZKLOGIN_PROVIDERS[providerSlug]?.name || mapIssuerToProvider(iss))
                         : mapIssuerToProvider(iss);
                     const hasCache = providerSlug ? hasStoredZkLogin(providerSlug) : false;
-                    const initialError = attempts > 0 ? `Invalid password (${attempts}/5 attempts)` : '';
 
                     const validator = providerSlug
                         ? async (password) => {
@@ -1225,8 +1214,6 @@
                     return await showPasswordPrompt({
                         providerLabel,
                         hasCache,
-                        attempts,
-                        initialError,
                         validator
                     });
                 });
@@ -1241,11 +1228,23 @@
                 try {
                     // CACHE PATH: First check if we have cached claims for this provider
                     logOutput(`🔍 Checking for cached ${providerName} identity...`);
-                    await initiateSmartZkLogin(provider);
+                    const initStatus = await initiateSmartZkLogin(provider);
+
+                    if (!initStatus || initStatus.needsOAuth) {
+                        const reason = initStatus?.reason || 'Cached credentials unavailable';
+                        logOutput(`ℹ️ ${providerName} cache unavailable (${reason}).`);
+                        throw new Error(`OAUTH_REQUIRED:${reason}`);
+                    }
 
                     // If we get here, cache exists and password was provided
                     logOutput(`✅ Using cached ${providerName} identity`);
                     fromCache = true;
+
+                    // For cached flows we still need a fresh zkLogin context to generate proofs
+                    pendingZkLoginContext = await prepareZkLoginContext();
+
+                    // Set active provider for cached path
+                    setActiveProvider(provider);
 
                     // Get salt from cached claims (uses cached password key, no double prompt)
                     salt = await getSaltForClaims();
@@ -1291,9 +1290,6 @@
                     } else if (error.message === 'Invalid password') {
                         logOutput('❌ Invalid password. Please try again.');
                         throw error;
-                    } else if (error.message.includes('Too many failed attempts')) {
-                        logOutput('❌ ' + error.message);
-                        throw error;
                     } else {
                         logOutput('❌ Smart zkLogin failed: ' + error.message, true);
                         throw error;
@@ -1310,14 +1306,18 @@
                 let publicIdentifier = window.SuiSDK.ZkLogin.toZkLoginPublicIdentifier(addressSeed, decodedJwt.iss, { legacyAddress: false });
 
                 // Prepare epoch and randomness values
-                const signatureMaxEpoch = fromCache ? null : pendingZkLoginContext.maxEpoch;
-                const randomnessValue = fromCache ? '' : (typeof pendingZkLoginContext.randomness === 'bigint'
-                    ? pendingZkLoginContext.randomness.toString()
-                    : (pendingZkLoginContext.randomness !== undefined && pendingZkLoginContext.randomness !== null
-                        ? String(pendingZkLoginContext.randomness)
-                        : ''));
+                const signatureMaxEpoch = pendingZkLoginContext?.maxEpoch ?? null;
+                let randomnessValue = '';
+                if (pendingZkLoginContext && pendingZkLoginContext.randomness !== undefined && pendingZkLoginContext.randomness !== null) {
+                    randomnessValue = typeof pendingZkLoginContext.randomness === 'bigint'
+                        ? pendingZkLoginContext.randomness.toString()
+                        : String(pendingZkLoginContext.randomness);
+                }
 
                 // Establish wallet connection
+                const ephemeralKeyPair = pendingZkLoginContext?.ephemeralKeyPair || null;
+                const publicKeyBase64 = ephemeralKeyPair?.getPublicKey?.()?.toBase64?.() || null;
+
                 currentWallet = {
                     address: suiAddress,
                     type: 'zkLogin',
@@ -1328,19 +1328,23 @@
                         salt: saltBigInt.toString(),
                         addressSeed: addressSeed.toString(),
                         publicIdentifier: publicIdentifier.toBase64(),
-                        publicKey: fromCache ? null : (pendingZkLoginContext.ephemeralKeyPair?.getPublicKey()?.toBase64() || null),
-                        nonce: fromCache ? null : pendingZkLoginContext.nonce,
+                        publicKey: publicKeyBase64,
+                        nonce: pendingZkLoginContext?.nonce ?? null,
                         randomness: randomnessValue,
                         maxEpoch: signatureMaxEpoch,
-                        ephemeralPublicKey: fromCache ? null : pendingZkLoginContext.extendedPublicKey,
+                        ephemeralPublicKey: pendingZkLoginContext?.extendedPublicKey ?? null,
                         connectedAt: Date.now(),
-                        expiresAt: fromCache ? null : (pendingZkLoginContext.expiresAt || null),
+                        expiresAt: pendingZkLoginContext?.expiresAt || null,
                         signatureInputs: null, // Will be set after proof generation
                         prover: null, // Will be set after proof generation
-                        ephemeralKeypair: fromCache ? null : (pendingZkLoginContext.ephemeralKeyPair || null),
+                        ephemeralKeyPair: ephemeralKeyPair,
                         identityHash: null,
                         hasEncryptedProof: false,
                         canSign: false, // Will be set to true after successful proof generation
+                        addressSeed: null,
+                        intentHash: null,
+                        addressCommitment: null,
+                        zkProof: null,
                         fromCache
                     }
                 };
@@ -1355,15 +1359,43 @@
 
                 const proofStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
                 try {
-                    logOutput('⚙️ Generating fresh zkLogin proof...');
-                    const { generateFreshProof } = zkloginHelpers;
-                    const proofResult = await generateFreshProof(provider);
+                    logOutput('⚙️ Generating zkLogin signature...');
+                    const helperSource = window.ZkLoginHelpers || {};
+                    const generateZkLoginSignature = helperSource.generateZkLoginSignature || window.generateZkLoginSignature;
+
+                    if (typeof generateZkLoginSignature !== 'function') {
+                        throw new Error('generateZkLoginSignature helper is unavailable');
+                    }
+
+                    // Create test intent for proof generation
+                    const testIntent = {
+                        type: 'personal_message',
+                        data: 'zkLogin proof generation test'
+                    };
+
+                    const signatureResult = await generateZkLoginSignature(provider, testIntent, currentWallet.zkLogin.ephemeralKeyPair);
                     const proofEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
                     const proofMs = Math.max(1, Math.round(proofEnd - proofStart));
-                    currentWallet.zkLogin.signatureInputs = proofResult.publicSignals;
-                    currentWallet.zkLogin.prover = proofResult.proof;
+
+                    currentWallet.zkLogin.zkLoginSignature = signatureResult.zkLoginSignature;
+                    currentWallet.zkLogin.address = signatureResult.address;
+                    currentWallet.zkLogin.maxEpoch = signatureResult.maxEpoch;
+                    currentWallet.zkLogin.addressSeed = signatureResult.addressSeed;
+                    currentWallet.zkLogin.intentHash = signatureResult.intentHash;
+                    currentWallet.zkLogin.addressCommitment = signatureResult.addressCommitment;
+                    currentWallet.zkLogin.zkProof = signatureResult.zkProof;
                     currentWallet.zkLogin.canSign = true;
-                    logOutput(`✅ zkProof generated (${proofMs}ms).`);
+                    logOutput(`✅ zkLogin signature generated (${proofMs}ms).`);
+
+                    if (signatureResult.zkProof) {
+                        try {
+                            const proofOutput = JSON.stringify(signatureResult.zkProof, null, 2);
+                            logOutput(`📄 zkProof:\n${proofOutput}`);
+                        } catch (proofFormatError) {
+                            console.warn('Failed to stringify zkProof for log output', proofFormatError, signatureResult.zkProof);
+                            logOutput('📄 zkProof generated (unable to serialize for display).');
+                        }
+                    }
                 } catch (proofError) {
                     const proofEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
                     const proofMs = Math.max(1, Math.round(proofEnd - proofStart));
@@ -1393,22 +1425,14 @@
                 // Use the same smart zkLogin flow for restoration
                 await ensureZkLoginHelpers();
 
-                const zkloginHelpers = await import('/src/zklogin-helpers.ts');
-                const {
-                    setPasswordPromptFunction,
-                    validatePasswordForProvider,
-                    initiateSmartZkLogin,
-                    getSaltForClaims,
-                    loadJwt
-                } = zkloginHelpers;
+                // zkLogin helpers are already injected globally
 
-                setPasswordPromptFunction(async (iss, attempts) => {
+                setPasswordPromptFunction(async (iss) => {
                     const providerSlug = issuerToProviderSlug(iss);
                     const providerLabel = providerSlug
                         ? (ZKLOGIN_PROVIDERS[providerSlug]?.name || mapIssuerToProvider(iss))
                         : mapIssuerToProvider(iss);
                     const hasCache = providerSlug ? hasStoredZkLogin(providerSlug) : false;
-                    const initialError = attempts > 0 ? `Invalid password (${attempts}/5 attempts)` : '';
 
                     const validator = providerSlug
                         ? async (password) => {
@@ -1419,8 +1443,6 @@
                     return await showPasswordPrompt({
                         providerLabel,
                         hasCache,
-                        attempts,
-                        initialError,
                         validator
                     });
                 });
@@ -1465,10 +1487,13 @@
                             expiresAt: null,
                             signatureInputs: null,
                             prover: null,
-                            ephemeralKeypair: null,
+                            ephemeralKeyPair: null,
                             identityHash: null,
                             canSign: true, // Enable signing since we have valid cached claims
                             hasEncryptedProof: false,
+                            intentHash: null,
+                            addressCommitment: null,
+                            zkProof: null,
                             fromCache: true
                         }
                     };
@@ -1499,9 +1524,6 @@
                     } else if (error.message === 'Invalid password') {
                         // User cancelled password prompt or entered wrong password
                         logOutput('Password required for cached identity');
-                        return false;
-                    } else if (error.message.includes('Too many failed attempts')) {
-                        logOutput('❌ ' + error.message);
                         return false;
                     } else {
                         logOutput('⚠️ Error restoring cached identity: ' + error.message, false);
@@ -1677,15 +1699,22 @@
                 const statusEl = document.getElementById('walletConnectionStatus');
                 const infoPanel = document.getElementById('walletInfo');
                 const actionBtn = document.getElementById('walletHeaderAction');
+                const viewToggleBtn = document.getElementById('viewOnlyToggleButton');
+                const viewOnlyForm = document.getElementById('viewOnlyForm');
+                const isWalletConnectionActive = isConnected && currentWallet?.type !== 'view_only';
+
                 if (statusEl) {
                     let statusText = isConnected ? 'Connected' : 'Not connected';
                     if (isConnected && currentWallet?.type === 'view_only') {
-                        statusText = 'View-only connected';
+                        statusText = 'Viewing address';
+                    } else if (!isConnected) {
+                        statusText = 'Not viewing';
                     }
                     statusEl.textContent = statusText;
                 }
+
                 if (actionBtn) {
-                    if (isConnected) {
+                    if (isWalletConnectionActive) {
                         actionBtn.textContent = 'Disconnect';
                         actionBtn.classList.add('disconnect');
                         actionBtn.onclick = () => disconnectWallet();
@@ -1695,22 +1724,48 @@
                         actionBtn.onclick = () => connectWalletStandard();
                     }
                 }
+
+                if (viewToggleBtn) {
+                    const isOpen = controls && controls.dataset.open === 'true';
+                    viewToggleBtn.style.display = isWalletConnectionActive ? 'none' : '';
+                    viewToggleBtn.setAttribute('aria-expanded', !isWalletConnectionActive && isOpen ? 'true' : 'false');
+                }
+
                 if (!controls) {
                     return;
                 }
-                controls.dataset.connected = isConnected ? 'true' : 'false';
+
+                let connectionState = 'false';
                 if (isConnected) {
-                    if (!walletControlsCollapsed) {
-                        controls.open = false;
-                        walletControlsCollapsed = true;
-                    }
+                    connectionState = currentWallet?.type === 'view_only' ? 'view' : 'true';
+                }
+                controls.dataset.connected = connectionState;
+
+                const isWalletConnection = connectionState === 'true';
+                const isOpen = controls.dataset.open === 'true';
+
+                if (isWalletConnection) {
                     controls.style.display = 'none';
-                    if (infoPanel) infoPanel.style.display = 'block';
+                    controls.dataset.open = 'false';
+                    if (viewOnlyForm) {
+                        viewOnlyForm.style.display = 'none';
+                    }
+                    if (viewToggleBtn) {
+                        viewToggleBtn.setAttribute('aria-expanded', 'false');
+                    }
                 } else {
-                    controls.open = false;
-                    walletControlsCollapsed = true;
-                    controls.style.display = '';
-                    if (infoPanel) infoPanel.style.display = 'none';
+                    controls.style.display = isOpen ? '' : 'none';
+                    if (viewOnlyForm) {
+                        viewOnlyForm.style.display = isOpen ? 'block' : 'none';
+                    }
+                }
+
+                if (infoPanel) {
+                    if (isConnected) {
+                        infoPanel.style.display = 'block';
+                    } else {
+                        infoPanel.style.display = 'none';
+                    }
                 }
             } catch (_) {}
         }
@@ -1727,7 +1782,13 @@
             }
 
             const lower = raw.toLowerCase();
-            if (!SUINS_NAME_RE.test(lower)) {
+            const utils = window.SuiSDK?.Utils || {};
+            const normalizeSuinsTarget = typeof utils.normalizeSuinsTarget === 'function' ? utils.normalizeSuinsTarget : null;
+            const validateSuinsName = typeof utils.isValidSuinsName === 'function' ? utils.isValidSuinsName : null;
+
+            let suinsTarget = normalizeSuinsTarget ? normalizeSuinsTarget(lower) : lower;
+
+            if (!validateSuinsName?.(suinsTarget) && !SUINS_NAME_RE.test(suinsTarget || '')) {
                 throw new Error('Invalid input. Provide a valid Sui address (0x...) or a SuiNS name ending in .sui');
             }
 
@@ -1740,7 +1801,8 @@
             }
 
             try {
-                const result = await suiClient.resolveNameServiceAddress({ name: lower });
+                const targetToResolve = suinsTarget || lower;
+                const result = await suiClient.resolveNameServiceAddress({ name: targetToResolve });
                 let resolved = '';
                 if (typeof result === 'string') {
                     resolved = result;
@@ -1759,12 +1821,13 @@
 
                 const { normalized: resolvedAddress } = normalizeAddressForDisplay(resolved);
                 if (!resolvedAddress || !HEX_ADDRESS_RE.test(resolvedAddress)) {
-                    throw new Error(`No Sui address found for ${raw}`);
+                    throw new Error(`No Sui address found for ${targetToResolve}`);
                 }
 
-                return { address: resolvedAddress, source: 'suins', name: lower };
+                return { address: resolvedAddress, source: 'suins', name: targetToResolve };
             } catch (error) {
-                throw new Error(`Failed to resolve ${raw}: ${error.message}`);
+                const targetToResolve = suinsTarget || lower;
+                throw new Error(`Failed to resolve ${targetToResolve}: ${error.message}`);
             }
         }
 
@@ -2013,6 +2076,9 @@
             if (!window.SuiSDK) throw new Error('SDK not loaded');
             const { SuiClient, getFullnodeUrl } = window.SuiSDK.Sui;
             suiClient = new SuiClient({ url: getFullnodeUrl(currentNetwork) });
+            try {
+                window.SuiSDK.client = suiClient;
+            } catch (_) {}
             logOutput(`Connected to Sui ${currentNetwork} network`);
             return suiClient;
         }
@@ -3005,7 +3071,6 @@
             try {
                 // Clear zkLogin session data first
                 try {
-                    const { clearSensitiveSessionData } = await import('/src/zklogin-helpers.ts');
                     clearSensitiveSessionData();
                     logOutput('🔑 zkLogin session data cleared');
                 } catch (error) {
@@ -3101,7 +3166,7 @@
                 if (!zk.signatureInputs) {
                     throw new Error('zkLogin proving service not ready. Reconnect after configuring the prover URL.');
                 }
-                if (!zk.ephemeralKeypair) {
+                if (!zk.ephemeralKeyPair) {
                     throw new Error('zkLogin session missing ephemeral keypair. Please reconnect via zkLogin before signing.');
                 }
 
@@ -3113,7 +3178,7 @@
                 tx.setSenderIfNotSet(currentWallet.address);
                 const txBytes = await tx.build({ client: suiClient });
 
-                const { signature } = await zk.ephemeralKeypair.signTransaction(txBytes);
+                const { signature } = await zk.ephemeralKeyPair.signTransaction(txBytes);
                 const signatureBytes = window.SuiSDK.BCS.fromBase64(signature);
                 if (!signatureBytes || signatureBytes.length < 65) {
                     throw new Error('Invalid zkLogin user signature produced.');
@@ -3207,7 +3272,6 @@
                 logOutput('⚠️ You will need to sign in with Google again for zkLogin');
 
                 try {
-                    const { clearSensitiveSessionData } = await import('/src/zklogin-helpers.ts');
                     clearSensitiveSessionData();
                     logOutput('🔑 In-memory zkLogin session data cleared');
                 } catch (innerError) {
@@ -3219,9 +3283,68 @@
             }
         }
 
+        function toggleViewOnlyForm(button) {
+            try {
+                const controls = document.getElementById('walletConnectionControls');
+                const form = document.getElementById('viewOnlyForm');
+                if (!controls) {
+                    return;
+                }
+
+                if (controls.dataset.connected === 'true') {
+                    return;
+                }
+
+                const isOpen = controls.dataset.open === 'true';
+                const nextState = !isOpen;
+
+                controls.dataset.open = nextState ? 'true' : 'false';
+                controls.style.display = nextState ? '' : 'none';
+
+                if (form) {
+                    form.style.display = nextState ? 'block' : 'none';
+                }
+
+                if (button) {
+                    button.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+                }
+
+                if (nextState) {
+                    clearViewOnlyInputError();
+                    const input = document.getElementById('viewOnlyTarget');
+                    if (input) {
+                        input.focus();
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to toggle view-only form:', error);
+            }
+        }
+
+        function markViewOnlyInputError() {
+            const input = document.getElementById('viewOnlyTarget');
+            const setInputError = window.SuiSDK?.Utils?.setInputError;
+            if (typeof setInputError === 'function') {
+                setInputError(input, true);
+            } else if (input) {
+                input.classList.add('view-only-input-error');
+            }
+        }
+
+        function clearViewOnlyInputError() {
+            const input = document.getElementById('viewOnlyTarget');
+            const setInputError = window.SuiSDK?.Utils?.setInputError;
+            if (typeof setInputError === 'function') {
+                setInputError(input, false);
+            } else if (input) {
+                input.classList.remove('view-only-input-error');
+            }
+        }
+
         // View-only connection function that accepts Sui addresses or SuiNS names
         async function connectViewOnly(target) {
             try {
+                clearViewOnlyInputError();
                 const { address, source, name } = await resolveViewOnlyTarget(target);
 
                 currentWallet = {
@@ -3230,6 +3353,21 @@
                     wallet: null
                 };
                 connectedWalletStandard = null;
+
+                const viewOnlyControls = document.getElementById('walletConnectionControls');
+                const viewOnlyForm = document.getElementById('viewOnlyForm');
+                const viewToggleButton = document.getElementById('viewOnlyToggleButton');
+
+                if (viewOnlyControls) {
+                    viewOnlyControls.dataset.open = 'false';
+                    viewOnlyControls.style.display = 'none';
+                }
+                if (viewOnlyForm) {
+                    viewOnlyForm.style.display = 'none';
+                }
+                if (viewToggleButton) {
+                    viewToggleButton.setAttribute('aria-expanded', 'false');
+                }
 
                 showCurrentWalletAddress(address);
                 document.getElementById('walletInfo').style.display = 'block';
@@ -3245,12 +3383,13 @@
 
                 try {
                     const inputEl = document.getElementById('viewOnlyTarget');
-                    if (inputEl) inputEl.value = ''; // clear after successful connect
+                    if (inputEl) inputEl.value = '';
                 } catch (_) {}
 
                 await getWalletBalance();
             } catch (error) {
                 logOutput('View-only connection error: ' + error.message, true);
+                markViewOnlyInputError();
             }
         }
 
@@ -3261,6 +3400,7 @@
         window.connectWalletStandard = connectWalletStandard;
         window.disconnectWallet = disconnectWallet;
         window.connectViewOnly = connectViewOnly;
+        window.toggleViewOnlyForm = toggleViewOnlyForm;
         window.clearZkLoginSession = function() {
             try {
                 sessionStorage.removeItem('galactic:zkLogin');
@@ -3308,6 +3448,19 @@
                         closeAllTraditionalDropdowns();
                     }
                 });
+
+                const viewOnlyInput = document.getElementById('viewOnlyTarget');
+                if (viewOnlyInput) {
+                    viewOnlyInput.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            connectViewOnly(viewOnlyInput.value);
+                        }
+                    });
+                    viewOnlyInput.addEventListener('input', function() {
+                        clearViewOnlyInputError();
+                    });
+                }
             } catch (e) {}
 
             scheduleBootstrapWork();
@@ -3355,32 +3508,37 @@
         <div class="section">
             <div class="wallet-connection-header">
                 <h3>Wallet Connection</h3>
-                <button id="walletHeaderAction" class="primary-btn connect-wallet-inline">Connect</button>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <button id="walletHeaderAction" class="primary-btn connect-wallet-inline">Connect</button>
+                    <button type="button" id="viewOnlyToggleButton" class="view-only-toggle" onclick="toggleViewOnlyForm(this)" aria-expanded="false" aria-controls="walletConnectionControls">
+                        🔍
+                        <span class="sr-only">Toggle view-only quick connect</span>
+                    </button>
+                </div>
                 <div id="walletHeaderSpinnerWrapper" aria-live="polite" aria-atomic="true">
                     <span id="walletHeaderSpinner" aria-hidden="true"></span>
                     <span class="sr-only" id="walletHeaderSpinnerLabel">Loading wallet SDK…</span>
                 </div>
             </div>
 
-            <details id="walletConnectionControls" class="section-toggle">
-                <summary>
-                    <span>View-Only</span>
-                    <span id="walletConnectionStatus" class="summary-status">Not viewing</span>
-                </summary>
-                <div style="padding: 5px;">
-
-                    
-                    <!-- View-Only Connection -->
-                    <details style="margin-top: 15px; border: 1px solid rgba(139,69,189,.3); border-radius: 8px; padding: 10px;">
-                        <summary style="cursor: pointer; font-weight: 500; color: #c3d5e8; font-size: 12px;">👁️ View-Only Connection</summary>
-                        <div style="margin-top: 10px;">
-                            <p style="font-size: 11px; color: #a0b3c5; margin: 0 0 8px 0;">Enter a Sui address (0x...) or SuiNS name (example.sui) to view balances without signing.</p>
-                            <input type="text" id="viewOnlyTarget" placeholder="0x... or name.sui" style="width: 70%; font-size: 12px;">
-                            <button onclick="connectViewOnly(document.getElementById('viewOnlyTarget').value)" style="font-size: 12px; padding: 5px 10px;">Connect View-Only</button>
-                        </div>
-                    </details>
+            <div id="walletConnectionControls" class="section-toggle" data-connected="false" data-open="false" style="display: none; margin-top: 15px; border: 1px solid rgba(139,69,189,.3); border-radius: 12px; padding: 14px;">
+                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <h4 style="margin: 0; font-weight: 500; color: #c3d5e8; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                            <span aria-hidden="true">👁️</span>
+                            <span>View-Only Connection</span>
+                        </h4>
+                        <span id="walletConnectionStatus" class="summary-status" style="font-size: 11px; color: #a0b3c5;">Not viewing</span>
+                    </div>
                 </div>
-            </details>
+                <div id="viewOnlyForm" style="display: none; margin-top: 12px;">
+                    <p style="font-size: 11px; color: #a0b3c5; margin: 0 0 8px 0;">Enter a Sui address (0x...) or SuiNS name (example.sui) to view balances without signing.</p>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="viewOnlyTarget" placeholder="0x... or name.sui" style="flex: 1; min-width: 220px; font-size: 12px;">
+                        <button onclick="connectViewOnly(document.getElementById('viewOnlyTarget').value)" style="font-size: 12px; padding: 5px 10px;">Connect View-Only</button>
+                    </div>
+                </div>
+            </div>
 
             <div id="walletInfo" class="wallet-info" style="display: none;">
                 <h4 class="wallet-heading">Connected Wallet

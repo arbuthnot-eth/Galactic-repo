@@ -1,6 +1,15 @@
 import { groth16 } from 'snarkjs';
+import { argon2id } from '@noble/hashes/argon2';
 // Import and explicitly re-export circom runtime for witness calculation
 import { WitnessCalculatorBuilder, createCircomRuntimeImports } from './circom-runtime';
+import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
+import {
+  decodeJwt as sdkDecodeJwt,
+  genAddressSeed as sdkGenAddressSeed,
+  jwtToAddress as sdkJwtToAddress,
+  hashASCIIStrToField as sdkHashASCIIStrToField,
+  poseidonHash as sdkPoseidonHash
+} from '@mysten/sui/zklogin';
 
 declare global {
   interface Window {
@@ -30,11 +39,9 @@ export function preloadZkLoginAssets(): Promise<void> {
         fetch('/zklogin.zkey').then((response) => response.arrayBuffer()),
       ])
         .then(() => {
-          console.info('⚡ zk-login assets pre-loaded');
           resolve();
         })
-        .catch((error) => {
-          console.warn('⚡ zk-login pre-load failed', error);
+        .catch(() => {
           resolve();
         });
     });
@@ -50,8 +57,10 @@ export function preloadZkLoginAssets(): Promise<void> {
 const ZKLOGIN_PREFIX = 'galactic:zkLogin';
 const ACTIVE_IDENTITY_KEY = `${ZKLOGIN_PREFIX}:activeIssuer`;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-const PBKDF2_ITERATIONS = 210_000;
-const PBKDF2_DIGEST = 'SHA-256';
+const ARGON2_MEMORY_KIB = 64 * 1024; // 64 MiB
+const ARGON2_TIME_COST = 3;
+const ARGON2_PARALLELISM = 1;
+const ARGON2_OUTPUT_LENGTH = 32;
 const SALT_DERIVATION_PREFIX = 'galactic::salt';
 
 type JwtClaims = {
@@ -80,8 +89,6 @@ type PasswordValidationOptions = {
 
 const passwordKeyCache = new Map<string, CryptoKey>();
 const saltMemoryCache = new Map<string, Uint8Array>();
-const passwordRetryCount = new Map<string, number>();
-const passwordCooldownUntil = new Map<string, number>();
 let idleTimeoutHandle: number | null = null;
 let idleListenersRegistered = false;
 
@@ -130,6 +137,13 @@ function describeIssuer(iss: string): string {
   }
 }
 
+function normalizeIssuerForZkLogin(iss: string): string {
+  if (iss === 'accounts.google.com') {
+    return 'https://accounts.google.com';
+  }
+  return iss;
+}
+
 // JWT parsing is handled by parseJWT function in smartwallet-dev.html
 
 function normalizeAudienceClaim(aud: unknown): string {
@@ -156,6 +170,62 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+function normalizeProofArray(values: any): any {
+  if (Array.isArray(values)) {
+    return values.map(item => normalizeProofArray(item));
+  }
+
+  if (typeof values === 'bigint') {
+    return values.toString();
+  }
+
+  if (typeof values === 'number') {
+    return values.toString();
+  }
+
+  if (typeof values === 'string') {
+    return values;
+  }
+
+  if (values && typeof values === 'object' && typeof values.toString === 'function') {
+    return values.toString();
+  }
+
+  throw new Error('Unsupported proof value type');
+}
+
+function base64UrlToBigIntString(segment: string): string {
+  if (!segment) {
+    return '0';
+  }
+
+  const paddedLength = segment.length % 4;
+  const padding = paddedLength ? '='.repeat(4 - paddedLength) : '';
+  const base64 = segment.replace(/-/g, '+').replace(/_/g, '/') + padding;
+
+  let bytes: Uint8Array;
+  if (typeof atob === 'function') {
+    const binary = atob(base64);
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+  } else {
+    bytes = Uint8Array.from(Buffer.from(base64, 'base64'));
+  }
+
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i].toString(16).padStart(2, '0');
+  }
+
+  if (!hex) {
+    return '0';
+  }
+
+  return BigInt('0x' + hex).toString();
+}
+
 function loadJwtEntry(provider: string): JwtEntry | null {
   try {
     const key = getProviderKey(provider);
@@ -163,8 +233,7 @@ function loadJwtEntry(provider: string): JwtEntry | null {
 
     if (!raw) return null;
     return JSON.parse(raw) as JwtEntry;
-  } catch (error) {
-    console.warn(`Failed to parse JWT entry for ${provider}. Removing.`, error);
+  } catch (_error) {
     localStorage.removeItem(getProviderKey(provider));
     return null;
   }
@@ -222,25 +291,19 @@ async function deriveSaltFromClaims(password: string, claims: JwtClaims): Promis
 
   // Derive salt from password and claims
   const aud = normalizeAudienceClaim(claims.aud);
-  const saltSource = `${SALT_DERIVATION_PREFIX}::${claims.iss}::${claims.sub}::${aud}`;
+  const saltSource = `${SALT_DERIVATION_PREFIX}::${provider}::${aud}::${claims.sub}`;
   const saltHash = await crypto.subtle.digest('SHA-256', encoder.encode(saltSource));
+  const argonSalt = new Uint8Array(saltHash);
+  const passwordBytes = encoder.encode(password);
 
-  const passwordKey = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits']
-  );
+  const derivedSalt = argon2id(passwordBytes, argonSalt, {
+    m: ARGON2_MEMORY_KIB,
+    t: ARGON2_TIME_COST,
+    p: ARGON2_PARALLELISM,
+    dkLen: ARGON2_OUTPUT_LENGTH,
+  });
 
-  const derivedBits = await crypto.subtle.deriveBits({
-    name: 'PBKDF2',
-    salt: saltHash,
-    iterations: PBKDF2_ITERATIONS,
-    hash: PBKDF2_DIGEST
-  }, passwordKey, 256);
-
-  const salt = new Uint8Array(derivedBits);
+  const salt = new Uint8Array(derivedSalt);
 
   // Cache salt in memory
   saltMemoryCache.set(provider, salt);
@@ -253,25 +316,19 @@ async function deriveEncryptionKey(password: string, iss: string): Promise<Crypt
 
   const keySource = `galactic::encryption::${iss}`;
   const keySalt = await crypto.subtle.digest('SHA-256', encoder.encode(keySource));
+  const argonSalt = new Uint8Array(keySalt);
+  const passwordBytes = encoder.encode(password);
 
-  const passwordKey = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits']
-  );
-
-  const derivedBits = await crypto.subtle.deriveBits({
-    name: 'PBKDF2',
-    salt: keySalt,
-    iterations: PBKDF2_ITERATIONS,
-    hash: PBKDF2_DIGEST
-  }, passwordKey, 256);
+  const derivedKey = argon2id(passwordBytes, argonSalt, {
+    m: ARGON2_MEMORY_KIB,
+    t: ARGON2_TIME_COST,
+    p: ARGON2_PARALLELISM,
+    dkLen: ARGON2_OUTPUT_LENGTH,
+  });
 
   return await crypto.subtle.importKey(
     'raw',
-    derivedBits,
+    derivedKey,
     { name: 'AES-GCM' },
     false,
     ['encrypt', 'decrypt']
@@ -302,35 +359,21 @@ function setPasswordPromptFunction(fn: (iss: string, attempts: number) => Promis
 }
 
 async function promptForPassword(iss: string): Promise<string> {
-  // Check cooldown
-  const cooldownEnd = passwordCooldownUntil.get(iss) || 0;
-  if (Date.now() < cooldownEnd) {
-    const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000);
-    throw new Error(`Too many failed attempts. Try again in ${remainingSeconds} seconds.`);
-  }
-
-  const retryCount = passwordRetryCount.get(iss) || 0;
-
-  console.log(`🔑 PASSWORD PROMPT #${retryCount + 1} for ${describeIssuer(iss)}`);
 
   // Use custom prompt if available, otherwise fall back to basic prompt
   if (globalPasswordPrompt) {
-    return await globalPasswordPrompt(iss, retryCount);
+    return await globalPasswordPrompt(iss, 0);
   }
 
   // Fallback to basic browser prompt
   return new Promise((resolve, reject) => {
     const issuerName = iss === 'https://accounts.google.com' ? 'Google' : new URL(iss).hostname;
-    const promptText = retryCount > 0
-      ? `Invalid password (${retryCount}/5 attempts). Enter password for ${issuerName} zkLogin:`
-      : `Enter password for ${issuerName} zkLogin:`;
+    const promptText = `Enter password for ${issuerName} zkLogin:`;
 
     const password = prompt(promptText);
     if (password === null) {
-      console.log(`🔑 Password prompt cancelled for ${describeIssuer(iss)}`);
       reject(new Error('Password prompt cancelled'));
     } else if (password.length < 8) {
-      console.log(`🔑 Password too short provided in prompt for ${describeIssuer(iss)}`);
       reject(new Error('Password must be at least 8 characters'));
     } else {
       resolve(password);
@@ -338,31 +381,13 @@ async function promptForPassword(iss: string): Promise<string> {
   });
 }
 
-function handlePasswordFailure(iss: string): void {
-  const currentCount = (passwordRetryCount.get(iss) || 0) + 1;
-  passwordRetryCount.set(iss, currentCount);
-
-  if (currentCount >= 5) {
-    // 5 second cooldown
-    passwordCooldownUntil.set(iss, Date.now() + 5000);
-    passwordRetryCount.delete(iss);
-  }
-}
-
-function handlePasswordSuccess(iss: string): void {
-  passwordRetryCount.delete(iss);
-  passwordCooldownUntil.delete(iss);
-}
-
 async function ensurePasswordKey(iss: string): Promise<CryptoKey> {
   const cached = passwordKeyCache.get(iss);
   const provider = describeIssuer(iss);
   if (cached) {
-    console.log(`🔑 Using CACHED password key for ${provider}`);
     return cached;
   }
 
-  console.log(`🔑 No cached key for ${provider}, prompting for password...`);
   const providerSlug = getProviderFromIssuer(iss);
 
   while (true) {
@@ -371,13 +396,11 @@ async function ensurePasswordKey(iss: string): Promise<CryptoKey> {
     try {
       password = await promptForPassword(iss);
     } catch (error: any) {
-      // Bubble up cancellations or cooldown errors immediately
-      if (error?.message === 'Password prompt cancelled' || error?.message?.includes('Too many failed attempts')) {
+      // Bubble up cancellations immediately
+      if (error?.message === 'Password prompt cancelled') {
         throw error;
       }
 
-      handlePasswordFailure(iss);
-      console.warn(`🔑 Password prompt error for ${provider}:`, error?.message || error);
       continue;
     }
 
@@ -390,7 +413,6 @@ async function ensurePasswordKey(iss: string): Promise<CryptoKey> {
       }
 
       if (error?.message === 'Invalid password') {
-        console.warn(`🔑 Invalid password for ${provider}, retrying...`);
         continue;
       }
 
@@ -410,8 +432,6 @@ async function validatePasswordForProvider(provider: string, password: string, o
       throw new Error('NO_CACHED_JWT');
     }
 
-    handlePasswordSuccess(iss);
-    console.log(`🔑 Accepted password for ${provider} (no cached JWT to validate yet)`);
     return {
       provider,
       iss,
@@ -426,11 +446,9 @@ async function validatePasswordForProvider(provider: string, password: string, o
     const claims = (window as any).SuiSDK.ZkLogin.decodeJwt(jwtText);
     const salt = await deriveSaltFromClaims(password, claims);
 
-    handlePasswordSuccess(iss);
     passwordKeyCache.set(iss, key);
     saltMemoryCache.set(provider, salt);
     scheduleIdleTeardown();
-    console.log(`🔑 Password validated and caches primed for ${provider}`);
 
     return {
       provider,
@@ -439,9 +457,7 @@ async function validatePasswordForProvider(provider: string, password: string, o
       fromCache: true
     };
   } catch (error: any) {
-    handlePasswordFailure(iss);
     const failureMessage = error?.message || error;
-    console.warn(`🔑 Password validation failed for ${provider}:`, failureMessage);
 
     if (error?.name === 'OperationError' || (typeof failureMessage === 'string' && failureMessage.includes('decrypt'))) {
       throw new Error('Invalid password');
@@ -588,6 +604,19 @@ function uint8ArrayToHex(uint8Array: Uint8Array): string {
   return Array.from(uint8Array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function hexToUint8Array(hex: string): Uint8Array {
+  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (normalized.length % 2 !== 0) {
+    throw new Error('Hex string must have an even length');
+  }
+  const result = new Uint8Array(normalized.length / 2);
+  for (let i = 0; i < result.length; i += 1) {
+    const byte = normalized.slice(i * 2, i * 2 + 2);
+    result[i] = parseInt(byte, 16);
+  }
+  return result;
+}
+
 // Base64 functions defined above - no duplicates needed
 
 // Store verified JWT with password protection
@@ -625,109 +654,296 @@ async function getSaltForClaims(provider?: string): Promise<Uint8Array> {
 // Simplified Proof Generation Functions
 // ---------------------------------------------------------------------------
 
-// Generate fresh proof using stored JWT
-async function generateFreshProof(provider?: string): Promise<{ proof: any; publicSignals: any }> {
+// Hybrid zkLogin signature: Official Sui utils + Custom lean circuit
+async function generateZkLoginSignature(
+  provider: string,
+  intent: {
+    type: 'transaction' | 'personal_message';
+    data: Uint8Array | string | SuiTransaction | undefined;
+  },
+  ephemeralKeyPair: any,
+  randomness?: string
+): Promise<{
+  zkLoginSignature: any;
+  address: string;
+  maxEpoch: string;
+  intentScope: string;
+  addressSeed: string;
+  intentHash: string;
+  addressCommitment: string;
+  zkProof: {
+    proofPoints: {
+      a: string[];
+      b: string[][];
+      c: string[];
+    };
+    publicSignals: {
+      addressSeed: string;
+      intentHash: string;
+    };
+  };
+}> {
   const activeProvider = provider || getActiveProvider();
   if (!activeProvider) throw new Error('No active zkLogin provider');
 
-  // Load JWT - this should use cached password key if available
+  const decodeJwt = (window as any).SuiSDK?.ZkLogin?.decodeJwt || sdkDecodeJwt;
+  const genAddressSeed = (window as any).SuiSDK?.ZkLogin?.genAddressSeed || sdkGenAddressSeed;
+  const jwtToAddress = (window as any).SuiSDK?.ZkLogin?.jwtToAddress || sdkJwtToAddress;
+  const hashASCIIStrToField = (window as any).SuiSDK?.ZkLogin?.hashASCIIStrToField || sdkHashASCIIStrToField;
+  const poseidonHash = (window as any).SuiSDK?.ZkLogin?.poseidonHash || sdkPoseidonHash;
+
+  // Load JWT using cached credentials
   const jwt = await loadJwt(activeProvider);
-  const claims = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
+  const claims = decodeJwt(jwt);
 
-  // Get salt - either from cache or derive with password prompt
+  // Get salt using existing cache mechanism
   const salt = await getSaltForClaims(activeProvider);
+  const saltHex = uint8ArrayToHex(salt);
+  const saltBigInt = BigInt('0x' + saltHex);
+  const BN254_FIELD_MODULUS = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617');
+  const saltFieldElement = saltBigInt % BN254_FIELD_MODULUS;
 
-  const combinedInput = await hashSubSaltIss(claims.sub, salt, claims.iss);
-  const issHash = await hashIss(claims.iss);
-  const nonce = crypto.getRandomValues(new Uint8Array(32));
-
-  // Get current epoch for maxEpoch
-  const currentEpoch = await getCurrentEpoch();
-
-  const inputs = {
-    combinedInput: BigInt('0x' + uint8ArrayToHex(combinedInput)),
-    nonce: BigInt('0x' + uint8ArrayToHex(nonce)),
-    maxEpoch: BigInt(currentEpoch + 1),
-    iss_hash: BigInt('0x' + uint8ArrayToHex(issHash))
-  };
-
-  const { proof, publicSignals } = await generateProof(inputs);
-  return { proof, publicSignals };
-}
-
-// Placeholder for getting current epoch from Sui network
-async function getCurrentEpoch(): Promise<number> {
-  // TODO: Implement actual epoch fetching from Sui network
-  return Math.floor(Date.now() / (24 * 60 * 60 * 1000)); // Daily epoch for now
-}
-
-// Hash sub, salt, and iss for circuit input
-async function hashSubSaltIss(sub: string, salt: Uint8Array, iss: string): Promise<Uint8Array> {
-  try {
-    const encoder = new TextEncoder();
-    const saltHex = uint8ArrayToHex(salt);
-    const data = encoder.encode(sub + saltHex + iss);
-    const combinedInput = await crypto.subtle.digest("SHA-256", data);
-    return new Uint8Array(combinedInput);
-  } catch (error) {
-    throw new Error(`Hashing failed: ${(error as Error).message}`);
+  const audClaim = Array.isArray(claims.aud) ? claims.aud[0] : claims.aud;
+  if (!audClaim || typeof audClaim !== 'string') {
+    throw new Error('JWT missing aud field');
   }
-}
 
-// Hash issuer
-async function hashIss(iss: string): Promise<Uint8Array> {
-  try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(iss);
-    return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
-  } catch (error) {
-    throw new Error(`Issuer hashing failed: ${(error as Error).message}`);
+  const claimNameHashField = hashASCIIStrToField('sub', 32);
+  const claimValueHashField = hashASCIIStrToField(claims.sub, 115);
+  const audFieldElement = hashASCIIStrToField(audClaim, 145);
+  const epochWindow = 1n;
+
+  const addressSeed = genAddressSeed(
+    saltFieldElement,
+    'sub',
+    claims.sub,
+    audClaim
+  );
+  const addressSeedString = addressSeed.toString();
+
+  // Use official Sui functions for address derivation
+  const zkLoginAddress = jwtToAddress(jwt, saltFieldElement, false);
+
+  // Get current epoch
+  if (!(window as any).SuiSDK?.client) {
+    throw new Error('No Sui client available - ensure SDK is properly injected');
   }
-}
+  const currentEpochInfo = await (window as any).SuiSDK.client.getLatestSuiSystemState();
+  const currentEpoch = Number(currentEpochInfo.epoch);
+  const maxEpoch = (BigInt(currentEpoch) + epochWindow).toString();
 
-// Smart zkLogin flow: check cache first, then prompt for password only when needed
-async function initiateSmartZkLogin(provider: string): Promise<{ proof: any; publicSignals: any; fromCache: boolean }> {
-  console.log(`🔑 ENTRY: initiateSmartZkLogin() called for ${provider}`);
+  const transactionCtor =
+    (window as any).SuiSDK?.Sui?.Transaction ||
+    (window as any).SuiSDK?.Sui?.TransactionBlock;
 
-  const iss = getIssuerFromProvider(provider);
+  // Ensure transaction tier is loaded so the constructor exists
+  let transactionCtorResolved = transactionCtor;
 
-  const existingEntry = loadJwtEntry(provider);
-
-  if (existingEntry) {
-    // Cache exists - use retry mechanism like ensurePasswordKey
-    console.log(`🔐 Found cached ${provider} identity, prompting for password...`);
-    try {
-      // Use ensurePasswordKey which has built-in retry logic
-      const key = await ensurePasswordKey(iss);
-      console.log(`🔑 Password validated and key cached for ${provider}`);
-
-      // Load and decrypt JWT using the validated password key
-      console.log(`🔑 Loading JWT with validated password key...`);
-      const jwt = await loadJwt(provider); // Use cached key, no password needed
-      const decoded = (window as any).SuiSDK.ZkLogin.decodeJwt(jwt);
-
-      // Derive and cache salt at the same time since we have validated key + claims
-      console.log(`🔑 Deriving and caching salt...`);
-      const salt = await getSaltForClaims(provider);
-
-      console.log(`🔑 Generating proof with cached data...`);
-      const { proof, publicSignals } = await generateFreshProof(provider);
-      return { proof, publicSignals, fromCache: true };
-    } catch (error: any) {
-      if (error?.message?.includes('Too many failed attempts')) {
-        throw error; // Don't fallback during cooldown
-      }
-      if (error?.message === 'Invalid password') {
-        throw error; // Let user retry password
-      }
-      console.warn(`⚠️ Failed to use cached ${provider} identity:`, error?.message);
-      // Continue to OAuth fallback
+  if (!transactionCtorResolved) {
+    if (typeof (window as any).SuiSDK?.loadTransaction === 'function') {
+      await (window as any).SuiSDK.loadTransaction();
+      transactionCtorResolved =
+        (window as any).SuiSDK?.Sui?.Transaction ||
+        (window as any).SuiSDK?.Sui?.TransactionBlock;
     }
   }
 
-  // No cache exists or cache failed - need OAuth
-  console.log(`🌐 No cached ${provider} identity found, will need OAuth...`);
-  throw new Error(`OAUTH_REQUIRED:${provider}`);
+  if (!transactionCtorResolved) {
+    transactionCtorResolved = SuiTransaction as unknown as { new (): any };
+
+    // Backfill global reference for downstream consumers if missing
+    if ((window as any).SuiSDK?.Sui && !(window as any).SuiSDK.Sui.Transaction) {
+      (window as any).SuiSDK.Sui.Transaction = SuiTransaction;
+    }
+  }
+
+  let signingBytes: Uint8Array;
+  let userSignature: string;
+  let intentScopeValue: string;
+
+  if (intent.type === 'transaction') {
+    if (typeof transactionCtorResolved !== 'function') {
+      throw new Error('Transaction tier not loaded - call window.SuiSDK.loadTransaction() before generating zkLogin proofs.');
+    }
+
+    intentScopeValue = 'TransactionData';
+    let txBytes: Uint8Array;
+
+    if (intent.data instanceof transactionCtorResolved) {
+      const txb = intent.data;
+      if (typeof txb.setSender === 'function') {
+        txb.setSender(zkLoginAddress);
+      }
+      txBytes = await txb.build({ client: (window as any).SuiSDK.client });
+    } else if (intent.data && typeof (intent.data as SuiTransaction).build === 'function') {
+      const txb = intent.data as SuiTransaction;
+      if (typeof (txb as any).setSender === 'function') {
+        (txb as any).setSender(zkLoginAddress);
+      }
+      txBytes = await txb.build({ client: (window as any).SuiSDK.client });
+    } else if (intent.data instanceof Uint8Array) {
+      txBytes = intent.data;
+    } else if (typeof intent.data === 'string') {
+      txBytes = hexToUint8Array(intent.data);
+    } else {
+      throw new Error('Unsupported transaction intent payload');
+    }
+
+    const transactionSignature = await ephemeralKeyPair.signTransaction(txBytes);
+    userSignature = transactionSignature.signature;
+    signingBytes = txBytes;
+  } else {
+    intentScopeValue = 'PersonalMessage';
+    const messageSource = intent.data ?? 'zkLogin proof intent';
+    const messageBytes = typeof messageSource === 'string'
+      ? new TextEncoder().encode(messageSource)
+      : messageSource;
+
+    if (!(messageBytes instanceof Uint8Array)) {
+      throw new Error('Unsupported personal message payload');
+    }
+
+    const personalMessageSignature = await ephemeralKeyPair.signPersonalMessage(messageBytes);
+    userSignature = personalMessageSignature.signature;
+    signingBytes = messageBytes;
+  }
+
+  // Generate proof with lean circuit
+  const wasmBuffer = await fetch('/zklogin.wasm').then(r => r.arrayBuffer());
+  const zkeyBuffer = await fetch('/zklogin.zkey').then(r => r.arrayBuffer());
+
+  // Process intent and compute hash for circuit
+  const intentHash = await crypto.subtle.digest('SHA-256', signingBytes);
+  const intentDataBigInt = BigInt('0x' + uint8ArrayToHex(new Uint8Array(intentHash)));
+  const intentDataField = intentDataBigInt % BN254_FIELD_MODULUS;
+
+  const addressCommitmentInput = poseidonHash([
+    BigInt(5),
+    addressSeed
+  ]).toString();
+
+  const intentCommitmentInput = poseidonHash([
+    intentDataField
+  ]).toString();
+
+  const circuitInputs = {
+    claim_name_hash: claimNameHashField.toString(),
+    claim_value_hash: claimValueHashField.toString(),
+    aud_hash: audFieldElement.toString(),
+    salt_field: saltFieldElement.toString(),
+    intent_data: intentDataField.toString(),
+    address_seed: addressSeedString,
+    intent_hash: intentCommitmentInput
+  };
+
+  const wasmBytes = new Uint8Array(wasmBuffer);
+  const zkeyBytes = new Uint8Array(zkeyBuffer);
+
+  const { proof, publicSignals } = await groth16.fullProve(
+    buildZkLoginInputs(circuitInputs),
+    wasmBytes,
+    zkeyBytes
+  );
+
+  if (!proof?.pi_a || !proof?.pi_b || !proof?.pi_c) {
+    throw new Error('Proof generation returned incomplete proof structure');
+  }
+
+  if (!Array.isArray(proof.pi_a) || !Array.isArray(proof.pi_b) || !Array.isArray(proof.pi_c)) {
+    throw new Error('Proof elements missing expected array structure');
+  }
+
+  const proofPoints = {
+    a: normalizeProofArray(proof.pi_a),
+    b: normalizeProofArray(proof.pi_b),
+    c: normalizeProofArray(proof.pi_c),
+  } as {
+    a: string[];
+    b: string[][];
+    c: string[];
+  };
+
+  const [circuitAddressSeed, circuitIntentHash] = publicSignals ?? [];
+
+  if (!circuitAddressSeed) {
+    throw new Error('Circuit address seed missing from proof');
+  }
+  if (!circuitIntentHash) {
+    throw new Error('Circuit intent hash missing from proof');
+  }
+
+  if (circuitAddressSeed !== addressSeedString) {
+    throw new Error('Circuit address seed mismatch');
+  }
+
+  if (circuitIntentHash !== intentCommitmentInput) {
+    throw new Error('Circuit intent hash mismatch');
+  }
+
+  const zkProof = {
+    proofPoints,
+    publicSignals: {
+      addressSeed: circuitAddressSeed,
+      intentHash: circuitIntentHash
+    }
+  };
+
+  // Sign the transaction with ephemeral key using official Sui pattern
+  const client = (window as any).SuiSDK.client;
+  if (!client) {
+    throw new Error('Sui client not available');
+  }
+
+  // Use official Sui getZkLoginSignature format
+  const zkLoginSignature = (window as any).SuiSDK.ZkLogin.getZkLoginSignature({
+    inputs: {
+      proofPoints,
+      issBase64Details: {
+        value: jwt.split('.')[1],
+        indexMod4: 0
+      },
+      headerBase64: jwt.split('.')[0],
+      addressSeed: addressSeedString
+    },
+    maxEpoch: BigInt(maxEpoch),
+    userSignature
+  });
+
+  return {
+    zkLoginSignature,
+    address: zkLoginAddress,
+    maxEpoch,
+    intentScope: intentScopeValue,
+    addressSeed: addressSeedString,
+    intentHash: circuitIntentHash,
+    addressCommitment: addressCommitmentInput,
+    zkProof
+  };
+}
+
+
+// Note: Removed hashSubSaltIss and hashIss functions as they are no longer needed
+// The new circuit takes sub, salt, and aud as separate inputs instead of combined hash
+
+// Smart zkLogin flow: check cache first, then prompt for password only when needed
+async function initiateSmartZkLogin(provider: string): Promise<{ needsOAuth: boolean; reason: string }> {
+  const iss = getIssuerFromProvider(provider);
+  const existingEntry = loadJwtEntry(provider);
+
+  if (existingEntry) {
+    try {
+      // Test if cached credentials work
+      await ensurePasswordKey(iss);
+      return { needsOAuth: false, reason: 'Cached credentials valid' };
+    } catch (error: any) {
+      if (error?.message === 'Invalid password') {
+        throw error; // Let user retry password
+      }
+      return { needsOAuth: true, reason: 'Cached credentials invalid' };
+    }
+  }
+
+  return { needsOAuth: true, reason: 'No cached credentials' };
 }
 
 function getIssuerUrl(provider: string): string {
@@ -765,24 +981,42 @@ function getAuthUrlForProvider(provider: string): string {
 
 // Ensure all functions are available globally
 if (typeof window !== 'undefined') {
-  (window as any).WitnessCalculatorBuilder = WitnessCalculatorBuilder;
-  (window as any).createCircomRuntimeImports = createCircomRuntimeImports;
-  (window as any).snarkjs = { groth16 };
+  const globalTarget: any = window;
+  globalTarget.WitnessCalculatorBuilder = WitnessCalculatorBuilder;
+  globalTarget.createCircomRuntimeImports = createCircomRuntimeImports;
+  globalTarget.snarkjs = { groth16 };
 
-  // Expose simplified zkLogin functions globally
-  (window as any).initiateSmartZkLogin = initiateSmartZkLogin;
-  (window as any).storeVerifiedJwt = storeVerifiedJwt;
-  (window as any).getSaltForClaims = getSaltForClaims;
-  (window as any).getClientIdForProvider = getClientIdForProvider;
-  (window as any).getAuthUrlForProvider = getAuthUrlForProvider;
-  (window as any).getIssuerFromProvider = getIssuerFromProvider;
-  (window as any).generateFreshProof = generateFreshProof;
-  (window as any).loadJwt = loadJwt;
+  const helperBindings: Record<string, unknown> = {
+    initiateSmartZkLogin,
+    storeVerifiedJwt,
+    getSaltForClaims,
+    generateZkLoginSignature,
+    loadJwt,
+    setPasswordPromptFunction,
+    setActiveProvider,
+    validatePasswordForProvider,
+    clearSensitiveSessionData,
+    deriveSaltFromClaims,
+    getIssuerFromProvider,
+    getIssuerUrl,
+    getClientIdForProvider,
+    getAuthUrlForProvider,
+    setSecureCookie,
+    setCSRFToken,
+    validateCSRFToken,
+    preloadZkLoginAssets,
+  };
 
-  // Expose security utilities globally
-  (window as any).setSecureCookie = setSecureCookie;
-  (window as any).setCSRFToken = setCSRFToken;
-  (window as any).validateCSRFToken = validateCSRFToken;
+  Object.entries(helperBindings).forEach(([key, value]) => {
+    globalTarget[key] = value;
+  });
+
+  const helpers = {
+    ...(globalTarget.ZkLoginHelpers || {}),
+    ...helperBindings,
+  };
+  globalTarget.ZkLoginHelpers = helpers;
+  globalTarget.__zkLoginHelpersLoaded__ = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -792,10 +1026,8 @@ export {
   initiateSmartZkLogin,
   storeVerifiedJwt,
   getSaltForClaims,
-  generateFreshProof,
+  generateZkLoginSignature,
   loadJwt,
-  hashSubSaltIss,
-  hashIss,
   setSecureCookie,
   setCSRFToken,
   validateCSRFToken,
@@ -805,54 +1037,33 @@ export {
   getClientIdForProvider,
   getAuthUrlForProvider,
   setPasswordPromptFunction,
+  setActiveProvider,
   clearSensitiveSessionData,
   validatePasswordForProvider
 };
 
 // ---------------------------------------------------------------------------
-// Helper that builds the exact JSON expected by the SuiKeyDerivation circuit
+// Helper that builds the exact JSON expected by the SuiZkLogin circuit
 // ---------------------------------------------------------------------------
 export function buildZkLoginInputs(raw: {
-  combinedInput: string;        // hash(sub || salt || iss) - computed client-side
-  nonce: string;               // Random nonce
-  maxEpoch: string;            // Maximum epoch (currentEpoch + 1)
-  iss_hash: string;            // SHA-256 hash of issuer for provider validation
+  claim_name_hash: string;
+  claim_value_hash: string;
+  aud_hash: string;
+  salt_field: string;
+  intent_data: string;
+  address_seed: string;
+  intent_hash: string;
 }) {
-  // The new circuit expects only these 4 inputs - much simpler!
+  // Lean circuit inputs matching new circuit structure
   const inputs = {
-    combinedInput: raw.combinedInput,
-    nonce: raw.nonce,
-    maxEpoch: raw.maxEpoch,
-    iss_hash: raw.iss_hash,
+    claim_name_hash: raw.claim_name_hash,
+    claim_value_hash: raw.claim_value_hash,
+    aud_hash: raw.aud_hash,
+    salt_field: raw.salt_field,
+    intent_data: raw.intent_data,
+    address_seed: raw.address_seed,
+    intent_hash: raw.intent_hash,
   };
 
   return inputs;
-}
-
-// ---------------------------------------------------------------------------
-// Convenience wrapper that runs the full‑prove step
-// ---------------------------------------------------------------------------
-export async function generateProof(rawInputs: any) {
-  // 1️⃣ Build the exact input JSON
-  const inputs = buildZkLoginInputs(rawInputs);
-
-  // 2️⃣ Load the compiled circuit files from the public folder
-  const wasmBuffer = await fetch('/zklogin.wasm').then(r => r.arrayBuffer());
-  const zkeyBuffer = await fetch('/zklogin.zkey').then(r => r.arrayBuffer());
-
-  // 3️⃣ Run snarkjs
-  const { proof, publicSignals } = await groth16.fullProve(
-    inputs,
-    new Uint8Array(wasmBuffer),
-    new Uint8Array(zkeyBuffer)
-  );
-
-  return { proof, publicSignals };
-}
-
-if (typeof window !== 'undefined') {
-  window.ZkLoginHelpers = {
-    ...(window.ZkLoginHelpers ?? {}),
-    preloadZkLoginAssets,
-  };
 }

@@ -22,8 +22,51 @@ const CoreWalletStandard = {
   getWallets,
 };
 
+const SUINS_NAME_REGEX = /^[a-z0-9]+(?:[-.][a-z0-9]+)*\.sui$/i;
+
+function normalizeSuinsTarget(value: string): string | null {
+  const trimmed = (value || '').trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (SUINS_NAME_REGEX.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (!trimmed.endsWith('.sui')) {
+    const appended = `${trimmed}.sui`;
+    if (SUINS_NAME_REGEX.test(appended)) {
+      return appended;
+    }
+  }
+
+  return trimmed;
+}
+
+function isValidSuinsName(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  return SUINS_NAME_REGEX.test(value);
+}
+
+function setInputError(element: HTMLElement | null | undefined, hasError: boolean, className = 'view-only-input-error') {
+  if (!element) {
+    return;
+  }
+  if (hasError) {
+    element.classList.add(className);
+  } else {
+    element.classList.remove(className);
+  }
+}
+
 const CoreUtils = {
   lazyLoadImages,
+  normalizeSuinsTarget,
+  isValidSuinsName,
+  setInputError,
 };
 
 // Update the global SDK with core functionality

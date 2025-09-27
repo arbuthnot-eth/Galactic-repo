@@ -13,7 +13,9 @@ import {
   jwtToAddress,
   genAddressSeed,
   decodeJwt,
-  toZkLoginPublicIdentifier
+  toZkLoginPublicIdentifier,
+  hashASCIIStrToField,
+  poseidonHash
 } from '@mysten/sui/zklogin';
 
 // Advanced tier functions
@@ -26,6 +28,8 @@ const AdvancedZkLogin = {
   genAddressSeed,
   decodeJwt,
   toZkLoginPublicIdentifier,
+  hashASCIIStrToField,
+  poseidonHash,
 };
 
 // Update the global SDK with advanced functionality
@@ -34,8 +38,12 @@ if (window.SuiSDK) {
   window.SuiSDK.Sui.Ed25519Keypair = Ed25519Keypair;
   window.SuiSDK.Sui.Ed25519PublicKey = Ed25519PublicKey;
 
-  // Replace the ZkLogin object with full functionality
-  window.SuiSDK.ZkLogin = AdvancedZkLogin;
+  // Merge the advanced zkLogin helpers, preserving any utility methods that
+  // were already attached during earlier tiers or runtime customization.
+  window.SuiSDK.ZkLogin = {
+    ...(window.SuiSDK.ZkLogin || {}),
+    ...AdvancedZkLogin,
+  };
 } else {
   throw new Error('SuiSDK not found - advanced tier cannot load without core tier');
 }

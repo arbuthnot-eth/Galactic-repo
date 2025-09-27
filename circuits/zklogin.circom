@@ -1,68 +1,50 @@
-pragma circom 2.0.0;
+pragma circom 2.1.6;
 
 include "node_modules/circomlib/circuits/poseidon.circom";
-include "node_modules/circomlib/circuits/escalarmulfix.circom";
-include "node_modules/circomlib/circuits/babyjub.circom";
 include "node_modules/circomlib/circuits/bitify.circom";
 
-template SuiKeyDerivation() {
-    signal input combinedInput; // hash(sub || salt || iss)
-    signal input nonce; // Random nonce
-    signal input maxEpoch; // Maximum epoch
-    signal input iss_hash; // SHA-256 hash of iss
-    signal output address; // Sui address
+// Minimal zkLogin circuit: proves the relationship between hashed JWT claims,
+// salt field element, and the resulting zkLogin address seed commitment.
+template SuiZkLoginMinimal() {
+    // Private inputs
+    signal input claim_name_hash;   // hashASCIIStrToField('sub', 32)
+    signal input claim_value_hash;  // hashASCIIStrToField(claims.sub, 115)
+    signal input aud_hash;          // hashASCIIStrToField(aud, 145)
+    signal input salt_field;        // Salt reduced into BN254 field
+    signal input intent_data;       // Intent hash pre-image (field element)
 
-    // Step 1: Hash the combined input with nonce for key derivation
-    component keyHash = Poseidon(2);
-    keyHash.inputs[0] <== combinedInput;
-    keyHash.inputs[1] <== nonce;
+    // Public signals
+    signal input address_seed;      // Poseidon(claim_name_hash, claim_value_hash, aud_hash, poseidon(salt_field))
+    signal input intent_hash;       // Poseidon(intent_data)
 
-    // Step 2: Proper EdDSA key derivation using Baby Jubjub curve
-    // Convert key hash to 254-bit representation for EscalarMulFix
-    // Poseidon outputs up to 254 bits, so we need to accommodate this
-    component keyToBits = Num2Bits(254);
-    keyToBits.in <== keyHash.out;
+    // Bind proof to intent payload
+    component intentHasher = Poseidon(1);
+    intentHasher.inputs[0] <== intent_data;
+    intent_hash === intentHasher.out;
 
-    // Use escalarmulfix for efficient scalar multiplication on Baby Jubjub
-    // Baby Jubjub base point G_x, G_y coordinates
-    var BASE_POINT[2] = [
-        995203441582195749578291179787384436505546430278305826713579947235728471134,
-        5472060717959818805561601436314318772137091100104008585924551046643952123905
-    ];
+    // Hash salt field element for seed derivation
+    component saltHasher = Poseidon(1);
+    saltHasher.inputs[0] <== salt_field;
 
-    component keyDerivation = EscalarMulFix(254, BASE_POINT);
+    // Derive address seed exactly as Mysten SDK does
+    component addressSeed = Poseidon(4);
+    addressSeed.inputs[0] <== claim_name_hash;
+    addressSeed.inputs[1] <== claim_value_hash;
+    addressSeed.inputs[2] <== aud_hash;
+    addressSeed.inputs[3] <== saltHasher.out;
+    address_seed === addressSeed.out;
 
-    // Connect the key hash bits as scalar for multiplication
-    for (var i = 0; i < 254; i++) {
-        keyDerivation.e[i] <== keyToBits.out[i];
-    }
-
-    // Step 3: Validate the derived point is on the Baby Jubjub curve
-    component curveCheck = BabyCheck();
-    curveCheck.x <== keyDerivation.out[0];
-    curveCheck.y <== keyDerivation.out[1];
-
-    // Step 4: Derive final Sui address using proper cryptographic hash
-    component addressHash = Poseidon(4);
-    addressHash.inputs[0] <== 0x537569;                // ASCII "Sui" prefix
-    addressHash.inputs[1] <== keyDerivation.out[0];    // Baby Jubjub x-coordinate
-    addressHash.inputs[2] <== keyDerivation.out[1];    // Baby Jubjub y-coordinate
-    addressHash.inputs[3] <== keyHash.out;             // Include key hash for uniqueness
-    address <== addressHash.out;
-
-    // Step 5: Constraint checks to ensure all inputs are properly used
-    component epochHash = Poseidon(2);
-    epochHash.inputs[0] <== maxEpoch;
-    epochHash.inputs[1] <== iss_hash;
-
-    // Ensure epoch and issuer constraints are satisfied
-    signal epochConstraint;
-    epochConstraint <== epochHash.out * epochHash.out;
-
-    // Add constraint that links epoch validation to the final address
-    // Remove redundant equality constraint that was causing assertion failures
-    signal finalConstraint;
-    finalConstraint <== address + epochConstraint - address - epochConstraint;
+    // Range checks to ensure inputs lie inside BN254 field
+    component claimNameBits = Num2Bits(254);
+    claimNameBits.in <== claim_name_hash;
+    component claimValueBits = Num2Bits(254);
+    claimValueBits.in <== claim_value_hash;
+    component audBits = Num2Bits(254);
+    audBits.in <== aud_hash;
+    component saltBits = Num2Bits(254);
+    saltBits.in <== salt_field;
+    component intentBits = Num2Bits(254);
+    intentBits.in <== intent_data;
 }
 
-component main = SuiKeyDerivation();
+component main { public [address_seed, intent_hash] } = SuiZkLoginMinimal();
